@@ -1,1 +1,2 @@
-frontend/public/data/tiles_nc.csv whitespace=cr-at-eol
+# Preserve the canonical Git blob bytes, including its upstream CRLF endings.
+frontend/src/data/official/tiles_nc.csv -text whitespace=cr-at-eol

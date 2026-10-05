@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Footprint, InferencePolicy, SkyPolygon, TilingModel, TileRecord } from "../types";
-import { createBundledProfileRegistry, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { createBundledProfileRegistry } from "./fixtures/legacy-registry";
 import { makeCenterProposals } from "./catalogue";
 import { generateLatticeCandidates } from "./lattice";
 import { inferSurveyLattice } from "./lattice-inference";

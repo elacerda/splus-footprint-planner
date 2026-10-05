@@ -14,12 +14,12 @@ const baseCases: Array<{ environment: string; env: ConfigEnv; expectedBase: stri
   {
     environment: "production build",
     env: { command: "build", mode: "production", isSsrBuild: false },
-    expectedBase: "/jasytata/",
+    expectedBase: "./",
   },
   {
     environment: "production preview",
     env: { command: "serve", mode: "production", isSsrBuild: false, isPreview: true },
-    expectedBase: "/jasytata/",
+    expectedBase: "./",
   },
 ];
 

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildRegionPlanRequest, downloadCatalogue, downloadInstrumentCoordinates, downloadInstrumentProfileJson, getProfiles, loadDefaultProfile, planRegion, uploadCatalogue, uploadProfileFile } from "./api";
-import { ProfileRegistry, createBundledProfileRegistry } from "./profiles/registry";
+import { ProfileRegistry } from "./profiles/registry";
+import { createBundledProfileRegistry } from "./science/fixtures/legacy-registry";
 import { parseProfileJsonV2, serializeProfile } from "./profiles/document";
 import golden from "./data/golden.json";
 import type { InstrumentProfileV3, SurveyProfileV3, TileRecord } from "./types";

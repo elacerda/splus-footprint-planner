@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CoveragePolicy, Footprint, SkyPolygon } from "../types";
-import { createBundledProfileRegistry, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { createBundledProfileRegistry } from "./fixtures/legacy-registry";
 import { resolvePlanningProfile } from "../profiles/planning";
 import { makeCenterProposals } from "./catalogue";
 import { greedyChoose, type CoverageGrid } from "./coverage";

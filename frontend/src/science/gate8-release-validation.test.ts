@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { InstrumentProfileV3, SurveyProfileV3 } from "../types";
 import { DEFAULT_PROFILE } from "../profiles";
-import { createBundledProfileRegistry } from "../profiles/registry";
+import { createBundledProfileRegistry } from "./fixtures/legacy-registry";
 import { resolvePlanningProfile } from "../profiles/planning";
 import { makeCenterProposals, readCsv } from "./catalogue";
 import { coverageGeometryContext } from "./coverage-semantics";

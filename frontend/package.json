@@ -1,8 +1,8 @@
 {
-  "name": "jasytata",
+  "name": "splus-footprint-planner",
   "private": true,
-  "version": "0.5.0",
-  "description": "Telescope pointing and coverage planner",
+  "version": "0.1.0",
+  "description": "S-PLUS/T80-South pointing and coverage planner",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -13,7 +13,8 @@
     "typecheck": "tsc -b --pretty",
     "lint": "eslint .",
     "test": "vitest run",
-    "benchmark:baseline": "vitest bench --run src/science/gate0-baseline.bench.ts"
+    "benchmark:baseline": "vitest bench --run src/science/gate0-baseline.bench.ts",
+    "catalogue:refresh": "node scripts/refresh-official-catalogue.mjs"
   },
   "dependencies": {
     "aladin-lite": "3.8.2",

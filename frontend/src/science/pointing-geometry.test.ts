@@ -1,7 +1,7 @@
 import { measureResolvedCoverage } from "./test-support/resolved-coverage";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PROFILE, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
-import { createBundledProfileRegistry } from "../profiles/registry";
+import { createBundledProfileRegistry } from "./fixtures/legacy-registry";
 import type { Footprint, SkyPolygon, TileRecord } from "../types";
 import { coveredMask, contributingTileCountForTiles, sampleRegion, tileMask } from "./coverage";
 import { footprintContainsPoint, footprintIntersectsRegion, rotateLocalOffset } from "./footprint-engine";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBundledProfileRegistry } from "../profiles/registry";
+import { createBundledProfileRegistry } from "./fixtures/legacy-registry";
 import { SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles/v2";
 import { validateSurveyProfileV2 } from "../profiles/schema-v2";
 import type { CoveragePolicy, Footprint, SkyPolygon, SurveyProfileV2 } from "../types";

@@ -1,6 +1,6 @@
 frontend/node_modules/
 frontend/dist/
-# Local browser-testing catalogue; the production catalogue lives in frontend/public/data.
+# Local browser-testing catalogue; the fallback lives in frontend/src/data/official.
 /tiles_nc.csv
 .DS_Store
 .idea/

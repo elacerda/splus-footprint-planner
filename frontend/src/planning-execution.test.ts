@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { runPlanningOperation, type PlanningWorkerTransport } from "./planning-execution";
 import { executePlanningOperation, planningGeometryContext, serializedPlanningChoices, type PlanningOperation } from "./science/planning-operation";
 import { performancePlans, runPerformancePlan } from "./science/gate6-performance-workloads";
-import { profileRegistry, createBundledProfileRegistry } from "./profiles/registry";
+import { profileRegistry } from "./profiles/registry";
+import { createBundledProfileRegistry } from "./science/fixtures/legacy-registry";
 import { planRegion } from "./science/planner";
 import { projectCoverageProfile } from "./profiles/planning";
 import { CoverageUnavailableError } from "./science/coverage";
@@ -120,4 +121,14 @@ describe("Gate 6 serializable operation and dedicated transport", () => {
     runtime.onerror?.(new ErrorEvent("error", { message: "runtime" }));
     await expect(pending).rejects.toThrow("runtime"); expect(runtime.terminate).toHaveBeenCalledOnce();
   });
+});
+
+// Preserve the upstream generic regression environment outside the S-PLUS runtime.
+vi.mock("./profiles/registry", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./profiles/registry")>();
+  const library = (await import("./science/fixtures/production-v3.json")).default;
+  const registry = original.createBundledProfileRegistry();
+  for (const instrument of library.instruments) registry.registerInstrumentProfileV3(instrument);
+  for (const strategy of library.strategies) registry.registerSurveyProfileV3(strategy);
+  return { ...original, profileRegistry: registry };
 });

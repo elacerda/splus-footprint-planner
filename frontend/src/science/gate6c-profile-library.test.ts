@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Footprint, InstrumentProfileV3, SurveyProfileV3, TileRecord } from "../types";
-import productionV3 from "../profiles/production-v3.json";
+import productionV3 from "./fixtures/production-v3.json";
 import { DEFAULT_PROFILE } from "../profiles";
-import { ProfileRegistry, createBundledProfileRegistry } from "../profiles/registry";
+import { ProfileRegistry } from "../profiles/registry";
+import { createBundledProfileRegistry } from "./fixtures/legacy-registry";
 import { parseProfileJson, serializeProfile } from "../profiles/document";
 import { footprintForTile, resolveFootprintForTile } from "../profiles/footprints";
 import { resolvePlanningProfile } from "../profiles/planning";

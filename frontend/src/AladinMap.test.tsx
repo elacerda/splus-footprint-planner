@@ -447,3 +447,13 @@ it("renders the reference in a dedicated labelled plus catalogue, independently 
   expect(screen.queryByRole("status")).toBeNull();
   vi.unstubAllGlobals();
 });
+
+// Preserve the upstream generic regression environment outside the S-PLUS runtime.
+vi.mock("./profiles/registry", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./profiles/registry")>();
+  const library = (await import("./science/fixtures/production-v3.json")).default;
+  const registry = original.createBundledProfileRegistry();
+  for (const instrument of library.instruments) registry.registerInstrumentProfileV3(instrument);
+  for (const strategy of library.strategies) registry.registerSurveyProfileV3(strategy);
+  return { ...original, profileRegistry: registry };
+});

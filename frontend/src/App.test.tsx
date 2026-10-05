@@ -1,8 +1,13 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { CenterInput, CatalogueDataset, CatalogueResponse, RegionPlanResponse, TileRecord } from "./types";
+
+function renderFresh() {
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "New plan" }));
+}
 
 const formatNumber = (value: number) => new Intl.NumberFormat().format(value);
 
@@ -124,7 +129,7 @@ const catalogue: CatalogueResponse = {
 
 async function uploadCatalogueFixture(user: ReturnType<typeof userEvent.setup>) {
   await user.upload(screen.getByLabelText("Choose catalogue CSV"), new File(["RA,DEC\n150.875,-58.0064\n"], "tiles_nc.csv", { type: "text/csv" }));
-  await screen.findByRole("combobox", { name: "Catalogue instrument for tiles_nc.csv" });
+  await screen.findByLabelText("Show tiles_nc.csv");
 }
 
 function makePlan(count: number): RegionPlanResponse {
@@ -188,12 +193,6 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   afterEach(() => cleanup());
 
-  it("keeps catalogue loading user-driven without a bundled reference action", async () => {
-    render(<App />);
-    expect(screen.getByRole("button", { name: "Load catalogue" })).toBeEnabled();
-    expect(screen.queryByRole("button", { name: /load reference/i })).toBeNull();
-  });
-
   it("clears imported dataset state and map inputs when starting a new project", async () => {
     const user = userEvent.setup();
     const tiles = Array.from({ length: 4774 }, (_, index) => ({
@@ -202,17 +201,17 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
       ra_deg: original.ra_deg + index / 1_000_000,
     }));
     apiMocks.uploadCatalogue.mockResolvedValue({ ...catalogue, tiles });
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await waitFor(() => expect(screen.getByTestId("map-dataset-state")).toHaveTextContent("1:tiles_nc.csv"));
     expect(screen.getByText(formatNumber(4774), { selector: ".summary-number" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "New project" }));
+    await user.click(screen.getByRole("button", { name: "New plan" }));
     await user.click(screen.getByRole("button", { name: "Discard and start new" }));
     expect(screen.getByTestId("map-dataset-state")).toHaveTextContent("0:");
     expect(screen.getByText("0", { selector: ".summary-number" })).toBeInTheDocument();
     expect(screen.queryByText("tiles_nc.csv")).toBeNull();
     expect(screen.getByTestId("map-selection")).toHaveTextContent("[]");
-    expect(screen.getByRole("combobox", { name: "Output profile" })).toHaveValue("survey:splus-t80-south");
+    expect(screen.getByRole("heading", { name: "S-PLUS Footprint Planner" })).toBeTruthy();
 
     await uploadCatalogueFixture(user);
     await waitFor(() => expect(screen.getByTestId("map-dataset-state")).toHaveTextContent("1:tiles_nc.csv"));
@@ -221,7 +220,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("focuses a finalized region and keeps viewport priority when a catalogue is added", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     expect(screen.getByTestId("map-focus-state")).toHaveTextContent("0:1");
     const selectedRegion = screen.getByTestId("map-selection").textContent;
@@ -236,14 +235,14 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("keeps catalogue autofocus when no region is selected", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     expect(screen.getByTestId("map-focus-state")).toHaveTextContent("1:0");
   });
 
   it("recomputes selected-region coverage inputs when a catalogue is added", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     const region = { vertices: JSON.parse(screen.getByTestId("map-selection").textContent!) };
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
@@ -261,22 +260,14 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
   it("does not display an authoritative percentage for unavailable coverage", async () => {
     const user = userEvent.setup();
     apiMocks.measureCoverage.mockResolvedValue({ coverage_basis: "observed_area", coverage_status: "under_resolved" });
-    render(<App />);
+    renderFresh();
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
     await waitFor(() => expect(screen.getByText(/Coverage unavailable at required resolution/)).toBeTruthy());
-    expect(screen.queryByText("Legacy survey coverage")).toBeNull();
+    expect(screen.queryByText("S-PLUS coverage")).toBeNull();
     expect(screen.queryByText("Remaining uncovered")).toBeNull();
     expect(screen.queryByText("100.0%")).toBeNull();
-  });
-
-  it("starts with the bundled survey and resolves its output instrument", async () => {
-    render(<App />);
-    expect(screen.getByRole("combobox", { name: "Output profile" })).toHaveValue("survey:splus-t80-south");
-    expect(screen.getByText("T80-South camera")).toBeTruthy();
-    expect(screen.getByText("Rectangle 1.4° × 1.4°")).toBeTruthy();
-    expect(screen.getByText("Legacy S-PLUS grid")).toBeTruthy();
   });
 
   it("allows manual and imported proposals with an optional empty catalogue", async () => {
@@ -284,11 +275,11 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     apiMocks.parseCenters.mockResolvedValue([
       { ra_deg: 150.7708333, dec_deg: -23.9086111, label: "Line 2" },
     ]);
-    render(<App />);
+    renderFresh();
 
-    expect(screen.getByRole("combobox", { name: "Output profile" })).toHaveValue("survey:splus-t80-south");
-    expect(screen.getByText("OPTIONAL")).toBeTruthy();
-    expect(screen.getByText(/Load catalogues to extend a project, or start a new plan with the active survey/)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "S-PLUS Footprint Planner" })).toBeTruthy();
+
+
     expect(document.querySelector(".catalogue-summary .summary-number")).toHaveTextContent("0");
 
     await user.click(screen.getByRole("button", { name: /single tile/i }));
@@ -313,23 +304,8 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
         expect.objectContaining({ generation_method: "manual" }),
         expect.objectContaining({ generation_method: "imported_centers" }),
       ]),
-      "splus-t80-south", undefined, expect.any(Object), expect.any(Object), "nominal",
+      "splus-t80-south", "2000", expect.any(Object), expect.any(Object), "nominal",
     );
-  });
-
-  it("shows each catalogue's instrument association and inference role", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await uploadCatalogueFixture(user);
-    const instrument = await screen.findByRole("combobox", { name: "Catalogue instrument for tiles_nc.csv" });
-    const inferenceRole = screen.getByRole("combobox", { name: "Inference participation for tiles_nc.csv" });
-
-    expect(instrument).toHaveValue("t80-south");
-    expect(inferenceRole).toHaveValue("auto");
-    expect(screen.getByText(/Exclude removes a catalogue only from lattice inference; its assigned footprint still contributes to coverage/)).toBeTruthy();
-    await user.selectOptions(inferenceRole, "exclude");
-    expect(inferenceRole).toHaveValue("exclude");
   });
 
   it("selects an area and plans from the active profile when no catalogue is loaded", async () => {
@@ -356,9 +332,9 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
         remaining_uncovered_area_deg2: 0,
       },
     });
-    render(<App />);
+    renderFresh();
 
-    expect(screen.getByRole("combobox", { name: "Output profile" })).toHaveValue("survey:splus-t80-south");
+    expect(screen.getByRole("heading", { name: "S-PLUS Footprint Planner" })).toBeTruthy();
     const selectArea = screen.getByRole("button", { name: /select area/i });
     expect(selectArea).toBeEnabled();
     await user.click(selectArea);
@@ -368,9 +344,9 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(generatePlan).toBeEnabled();
     await user.click(generatePlan);
 
-    expect(await screen.findByText("Profile fallback")).toBeTruthy();
+    expect(await screen.findByText("S-PLUS grid fallback")).toBeTruthy();
     expect(screen.getByText("Already covered").parentElement).toHaveTextContent("0.0%");
-    expect(screen.getByText("Legacy survey coverage").parentElement).toHaveTextContent("100.0%");
+    expect(screen.getByText("S-PLUS coverage").parentElement).toHaveTextContent("100.0%");
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
       expect.objectContaining({ vertices: expect.any(Array) }), [], "splus-t80-south", undefined, "complete", expect.any(Object), undefined, expect.any(AbortSignal),
     );
@@ -383,7 +359,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ source: "proposed", enabled: true })]),
-      "splus-t80-south", undefined, expect.any(Object), expect.any(Object), "nominal",
+      "splus-t80-south", "2000", expect.any(Object), expect.any(Object), "nominal",
     );
   });
 
@@ -392,7 +368,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     apiMocks.planRegion.mockImplementation(async (_polygon: unknown, _tiles: unknown, _profileId: unknown, _profile: unknown, strategy: "complete" | "efficient") => ({
       ...makePlan(strategy === "efficient" ? 1 : 2), coverage_strategy: strategy,
     }));
-    render(<App />);
+    renderFresh();
     if (withCatalogue) await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     expect(screen.getByRole("radio", { name: /Complete coverage/ })).toBeChecked();
@@ -412,7 +388,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("plans a polygon, reversibly edits proposals, and exports enabled tiles", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     expect(await screen.findByText("1", { selector: ".summary-number" })).toBeTruthy();
 
@@ -447,7 +423,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledOnce();
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ source: "proposed", enabled: true })]),
-      "splus-t80-south", undefined, expect.any(Object), expect.any(Object), "nominal",
+      "splus-t80-south", "2000", expect.any(Object), expect.any(Object), "nominal",
     );
 
     await user.click(screen.getByRole("button", { name: "Clear proposal" }));
@@ -460,7 +436,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("clears finalized selection without clearing catalogue or accepted proposal", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     const polygonA = screen.getByTestId("map-selection").textContent;
@@ -476,7 +452,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("discards polygon A before redrawing polygon B", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     expect(screen.getByTestId("map-selection").textContent).toContain('"ra_deg":120');
@@ -490,7 +466,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("keeps selection A after Clear proposal until Clear selection", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
@@ -506,7 +482,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     const user = userEvent.setup();
     let resolvePlan: (value: RegionPlanResponse) => void = () => undefined;
     apiMocks.planRegion.mockReturnValueOnce(new Promise<RegionPlanResponse>((resolve) => { resolvePlan = resolve; }));
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
@@ -521,7 +497,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
   it("makes every accepted tile in a long proposal selectable from the inspector", async () => {
     const user = userEvent.setup();
     apiMocks.planRegion.mockResolvedValueOnce(makePlan(10));
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
@@ -533,7 +509,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("previews single-tile placement and lets the user cancel it", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: /single tile/i }));
     await user.click(screen.getByRole("button", { name: "Mock place tile" }));
@@ -548,7 +524,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("cancels region selection when switching map modes or pressing Escape", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
 
     const interactionState = screen.getByTestId("map-interaction-state");
@@ -566,7 +542,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("keeps disabled tiles out of planning and preserves proposal on Clear selection", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
@@ -585,7 +561,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("disables generic download when there is no active proposal", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     expect(screen.getByRole("button", { name: /download new_tiles.csv/i })).toBeDisabled();
     expect(apiMocks.downloadCatalogue).not.toHaveBeenCalled();
@@ -593,18 +569,18 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("uses the governing survey policy without a coordinate-format override", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
-    expect((screen.getByRole("combobox", { name: "Export epoch" }) as HTMLSelectElement).value).toBe("2000");
+    expect(screen.queryByRole("combobox", { name: "Export epoch" })).toBeNull();
     expect(screen.queryByRole("combobox", { name: "Export coordinates" })).toBeNull();
-    expect(screen.getByText("Coordinates: Decimal degrees (selected survey policy)")).toBeTruthy();
+    expect(screen.getByText(/ICRS decimal degrees · RA, DEC, EPOCH · epoch 2000/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ enabled: true })]),
-      "splus-t80-south", undefined, expect.any(Object), expect.any(Object), "nominal",
+      "splus-t80-south", "2000", expect.any(Object), expect.any(Object), "nominal",
     );
     await user.click(screen.getByRole("button", { name: "Disable all" }));
     expect(screen.getByRole("button", { name: /download new_tiles.csv/i })).toBeDisabled();
@@ -612,7 +588,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("inspects original tile metadata without offering to edit or delete it", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: "Mock inspect original" }));
     expect(await screen.findByText("SPLUS-d512")).toBeTruthy();
@@ -626,7 +602,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     apiMocks.uploadCatalogue
       .mockResolvedValueOnce({ filename: "ambiguous.csv", row_count: 0, tiles: [], warnings: [], columns: ["RA", "ra_deg", "DEC", "quality"], needs_mapping: true })
       .mockResolvedValueOnce({ ...catalogue, filename: "ambiguous.csv", row_count: 1 });
-    render(<App />);
+    renderFresh();
     const file = new File(["RA,ra_deg,DEC,quality\n10:03:05,150.77,-23:54:31,good\n"], "ambiguous.csv", { type: "text/csv" });
     await user.upload(screen.getByLabelText("Choose catalogue CSV"), file);
     expect(await screen.findByText(/Map coordinates in ambiguous.csv/)).toBeTruthy();
@@ -636,60 +612,10 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await waitFor(() => expect(apiMocks.uploadCatalogue).toHaveBeenLastCalledWith(file, expect.objectContaining({ raColumn: "RA", decColumn: "DEC", raUnit: "auto" })));
   });
 
-  it("keeps scientific planning independent from catalogue layer visibility", async () => {
-    const user = userEvent.setup();
-    const second: TileRecord = {
-      ...original, id: "original-2", name: "DR6 field", ra_deg: 124, dec_deg: -59,
-      metadata: { quality: "good", release: "DR6" },
-      original_values: { ra_deg: "124", dec_deg: "-59", quality: "good", release: "DR6" },
-      ra_column: "ra_deg", dec_column: "dec_deg",
-    };
-    apiMocks.uploadCatalogue
-      .mockResolvedValueOnce({ ...catalogue, row_count: 1 })
-      .mockResolvedValueOnce({ filename: "dr6.csv", row_count: 1, tiles: [second], warnings: [], ra_column: "ra_deg", dec_column: "dec_deg" });
-    render(<App />);
-    const input = screen.getByLabelText("Choose catalogue CSV");
-    await user.upload(input, new File(["RA,DEC\n"], "tiles_nc.csv", { type: "text/csv" }));
-    await user.upload(input, new File(["ra_deg,dec_deg\n"], "dr6.csv", { type: "text/csv" }));
-    expect(await screen.findByText("2 catalogues loaded")).toBeTruthy();
-    await user.selectOptions(screen.getByRole("combobox", { name: "Catalogue instrument for dr6.csv" }), "t80-south");
-    const firstToggle = screen.getByRole("checkbox", { name: "Show tiles_nc.csv" });
-    const secondToggle = screen.getByRole("checkbox", { name: "Show dr6.csv" });
-    expect((firstToggle as HTMLInputElement).checked).toBe(true);
-    expect((secondToggle as HTMLInputElement).checked).toBe(true);
-    await user.click(screen.getByRole("button", { name: "Mock inspect second" }));
-    expect(screen.getByText("dr6.csv", { selector: ".tile-name-block span" })).toBeTruthy();
-    expect(screen.getByText("good")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Mock select region" }));
-    await user.click(screen.getByRole("button", { name: "Generate plan" }));
-    expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
-      expect.anything(), expect.arrayContaining([
-        expect.objectContaining({ name: original.name }), expect.objectContaining({ name: second.name }),
-      ]), "splus-t80-south", undefined, "complete", expect.any(Object), undefined, expect.any(AbortSignal),
-    );
-    const firstPlanInputs = apiMocks.planRegion.mock.lastCall?.[1] as TileRecord[];
-    const initialMetrics = screen.getByText("Already covered").closest(".metrics-panel")?.textContent;
-    await user.click(firstToggle);
-    expect((secondToggle as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByText("Existing grid extended")).toBeTruthy();
-    expect(screen.getByText("Already covered").closest(".metrics-panel")?.textContent).toBe(initialMetrics);
-    await user.click(screen.getByRole("button", { name: "Generate plan" }));
-    const plannedTiles = apiMocks.planRegion.mock.lastCall?.[1] as TileRecord[];
-    expect(plannedTiles).toEqual(firstPlanInputs);
-    expect(plannedTiles.some((tile) => tile.name === original.name)).toBe(true);
-    expect(plannedTiles.some((tile) => tile.name === second.name)).toBe(true);
-    await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
-    const measuredTiles = apiMocks.measureCoverage.mock.lastCall?.[1] as TileRecord[];
-    expect(measuredTiles.map((tile) => tile.name)).toEqual(expect.arrayContaining([original.name, second.name]));
-    expect(screen.getByRole("button", { name: /PROPOSED_0001/ })).toBeTruthy();
-    await user.click(firstToggle);
-    expect((firstToggle as HTMLInputElement).checked).toBe(true);
-  });
-
   it("shows eight proposal preview centers and a compact remainder count", async () => {
     const user = userEvent.setup();
     apiMocks.planRegion.mockResolvedValue(makePlan(10));
-    render(<App />);
+    renderFresh();
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
 
@@ -700,7 +626,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("keeps planning layer visibility independent from proposal, region, metrics, and export", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
@@ -723,7 +649,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ source: "proposed", enabled: true })]),
-      "splus-t80-south", undefined, expect.any(Object), expect.any(Object), "nominal",
+      "splus-t80-south", "2000", expect.any(Object), expect.any(Object), "nominal",
     );
   });
 
@@ -731,7 +657,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByText("Development: plan input"));
@@ -747,7 +673,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("keeps inference evidence consistent when coverage is recalculated", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
@@ -769,7 +695,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
       polygon.vertices[0].ra_deg === 262
         ? { ...makePlan(2).metrics, existing_tiles_contributing: 11, already_covered_fraction: 0.033 }
         : makePlan(2).metrics);
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
@@ -791,7 +717,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
         dec_spacing_deg: null, ra_spacing_deg: null,
       },
     });
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
@@ -805,7 +731,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     apiMocks.parseCenters.mockResolvedValue([
       { ra_deg: 150.7708333, dec_deg: -23.9086111, label: "Line 2" },
     ]);
-    render(<App />);
+    renderFresh();
     await uploadCatalogueFixture(user);
     await user.type(screen.getByLabelText("RA and DEC pairs"), "10:03:05, -23:54:31");
     await user.click(screen.getByRole("button", { name: /validate and preview/i }));
@@ -818,7 +744,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
   it.each([
     ["37.686125", "-21.1720833"], ["02:30:44.67", "-21:10:19.5"], ["02 30 44.67", "-21 10 19.5"],
   ])("places and clears independent reference input %s / %s", async (ra, dec) => {
-    const user = userEvent.setup(); render(<App />);
+    const user = userEvent.setup(); renderFresh();
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await screen.findByRole("button", { name: /accept proposal/i });
@@ -843,7 +769,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
   });
 
   it("keeps the marker out of accepted-pointing exports and coverage", async () => {
-    const user = userEvent.setup(); render(<App />);
+    const user = userEvent.setup(); renderFresh();
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
@@ -859,30 +785,8 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(exported).toHaveLength(2); expect(exported.every((tile) => tile.ra_deg !== 37.686125)).toBe(true);
   });
 
-  it("preserves region and marker across instrument/strategy changes, then clears both on New project", async () => {
-    const user = userEvent.setup(); render(<App />);
-    await user.click(screen.getByRole("button", { name: "Mock select region" }));
-    const before = screen.getByTestId("map-selection").textContent;
-    await user.click(screen.getByText("Reference coordinate", { selector: "summary" }));
-    await user.type(screen.getByLabelText("Reference RA"), "37.686125");
-    await user.type(screen.getByLabelText("Reference Dec"), "-21.1720833");
-    await user.click(screen.getByRole("button", { name: "Place marker" }));
-    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "instrument:keck-kcwi-small");
-    expect(screen.getByTestId("map-reference")).toHaveTextContent("37.686125");
-    expect(screen.getByTestId("map-selection").textContent).toBe(before);
-    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "survey:splus-t80-south");
-    expect(screen.getByTestId("map-reference")).toHaveTextContent("37.686125");
-    expect(screen.getByTestId("map-selection").textContent).toBe(before);
-    await user.click(screen.getByRole("button", { name: /new project/i }));
-    await user.click(screen.getByRole("button", { name: "Discard and start new" }));
-    expect(screen.getByTestId("map-reference")).toHaveTextContent("null");
-    expect(screen.getByTestId("map-selection")).toHaveTextContent("[]");
-    await user.click(screen.getByText("Reference coordinate", { selector: "summary" }));
-    expect(screen.getByLabelText("Reference RA")).toHaveValue("");
-  });
-
   it("leaves a valid marker and scientific region untouched on invalid coordinate input", async () => {
-    const user = userEvent.setup(); render(<App />);
+    const user = userEvent.setup(); renderFresh();
     await user.click(screen.getByText("Reference coordinate", { selector: "summary" }));
     await user.type(screen.getByLabelText("Reference RA"), "40"); await user.type(screen.getByLabelText("Reference Dec"), "20");
     await user.click(screen.getByRole("button", { name: "Place marker" }));
@@ -894,7 +798,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
   });
 
   it("applies RA-wrap opposite corners as canonical planner input, only on submission", async () => {
-    const user = userEvent.setup(); render(<App />);
+    const user = userEvent.setup(); renderFresh();
     await user.selectOptions(screen.getByRole("combobox", { name: "Select region" }), "corners");
     await user.type(screen.getByLabelText("Corner 1 RA"), "359.9"); await user.type(screen.getByLabelText("Corner 1 Dec"), "-21.2");
     await user.type(screen.getByLabelText("Corner 2 RA"), "0.1"); await user.type(screen.getByLabelText("Corner 2 Dec"), "-21");
@@ -908,7 +812,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
   });
 
   it("invalidates dependent preview/candidates/diagnostics on rectangle apply and retains independent inputs", async () => {
-    const user = userEvent.setup(); render(<App />);
+    const user = userEvent.setup(); renderFresh();
     await uploadCatalogueFixture(user);
     await user.click(screen.getByRole("radio", { name: /efficient coverage/i }));
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
@@ -931,13 +835,13 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(screen.queryByText(makePlan(2).diagnostics[0])).toBeNull();
     expect(screen.queryByText("Remaining uncovered")).toBeNull();
     expect(screen.getByRole("radio", { name: /efficient coverage/i })).toBeChecked();
-    expect(screen.getByRole("combobox", { name: "Output profile" })).toHaveValue("survey:splus-t80-south");
+    expect(screen.getByRole("heading", { name: "S-PLUS Footprint Planner" })).toBeTruthy();
     expect(document.querySelector(".catalogue-summary .summary-number")).toHaveTextContent("1");
     expect(screen.getByLabelText("Width")).toHaveValue("120");
   });
 
   it("cancels polygon by keyboard and by its reachable panel control", async () => {
-    const user = userEvent.setup(); render(<App />);
+    const user = userEvent.setup(); renderFresh();
     await user.click(screen.getByRole("button", { name: /^Select area/ }));
     expect(screen.getByTestId("map-interaction-state")).toHaveTextContent("idle:true");
     await user.keyboard("{Escape}"); expect(screen.getByTestId("map-interaction-state")).toHaveTextContent("idle:false");
@@ -947,7 +851,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
   });
 
   it("keeps accepted pointing identity and recomputes coverage for a new canonical region", async () => {
-    const user = userEvent.setup(); render(<App />);
+    const user = userEvent.setup(); renderFresh();
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
@@ -966,136 +870,13 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
   it("ignores stale plan errors after clearing the selected region", async () => {
     const user = userEvent.setup(); let rejectPlan: (error: Error) => void = () => undefined;
     apiMocks.planRegion.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectPlan = reject; }));
-    render(<App />); await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    renderFresh(); await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await user.click(screen.getByRole("button", { name: "Clear selection" }));
     rejectPlan(new Error("Stale region failure"));
     await waitFor(() => expect(screen.getByRole("button", { name: /load catalogue/i })).toBeEnabled());
     expect(screen.queryByText("Stale region failure")).toBeNull();
     expect(screen.getByTestId("map-selection")).toHaveTextContent("[]");
-  });
-
-  it("previews project lattice candidates separately, invalidates them on region/instrument changes, and resets them for a new project", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "instrument:keck-kcwi-small");
-    await user.click(screen.getByRole("button", { name: "Mock select region" }));
-    await user.click(screen.getByRole("radio", { name: "Regional mosaic" }));
-    await user.selectOptions(screen.getByRole("combobox", { name: "Project lattice type" }), "rectangular");
-    await user.type(screen.getByLabelText("East spacing"), "3");
-    await user.type(screen.getByLabelText("North spacing"), "3");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Spacing and basis units" }), "deg");
-    await user.click(screen.getByRole("radio", { name: "Independent" }));
-    await user.type(screen.getByLabelText("Lattice rotation · degrees east of north"), "0");
-    await user.click(screen.getByRole("radio", { name: "Fixed sky coordinate" }));
-    await user.type(screen.getByLabelText("Origin RA"), "08:30:00");
-    await user.type(screen.getByLabelText("Origin Dec"), "-59:00:00");
-    await user.click(screen.getByRole("button", { name: "Preview lattice" }));
-
-    await waitFor(() => expect(Number(screen.getByTestId("project-preview-count").textContent)).toBeGreaterThan(0));
-    expect(screen.getByText(/candidate sites · preview only/)).toBeTruthy();
-    expect(screen.getByText(/Origin: Fixed sky coordinate · RA 127.500000°, Dec -59.000000°/)).toBeTruthy();
-    expect(apiMocks.planRegion).not.toHaveBeenCalled();
-    expect(screen.queryByText("Proposal preview")).toBeNull();
-    expect(screen.getByTestId("map-layer-state").textContent).toMatch(/^0:/);
-    const fullCount = screen.getByTestId("project-preview-count").textContent;
-    await user.click(screen.getByRole("checkbox", { name: "Show Candidate lattice" }));
-    expect(screen.getByTestId("project-preview-count")).toHaveTextContent(fullCount ?? "0");
-    const originalSelectedRegion = screen.getByTestId("map-selection").textContent;
-    await user.clear(screen.getByLabelText("East spacing"));
-    await user.type(screen.getByLabelText("East spacing"), "-1");
-    expect(screen.getByTestId("project-preview-count")).toHaveTextContent("0");
-    expect(screen.getByText(/previous candidate preview is stale/)).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Preview lattice" }));
-    expect(screen.getByRole("alert")).toHaveTextContent(/positive/);
-    expect(screen.getByTestId("map-selection").textContent).toBe(originalSelectedRegion);
-    expect(screen.getByTestId("project-preview-count")).toHaveTextContent("0");
-    await user.clear(screen.getByLabelText("East spacing"));
-    await user.type(screen.getByLabelText("East spacing"), "4");
-    await user.click(screen.getByRole("button", { name: "Preview lattice" }));
-    await waitFor(() => expect(Number(screen.getByTestId("project-preview-count").textContent)).toBeGreaterThan(0));
-
-    const selectedRegion = screen.getByTestId("map-selection").textContent;
-    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "instrument:subaru-pfs-target-access");
-    expect(screen.getByTestId("project-preview-count")).toHaveTextContent("0");
-    expect(screen.getByTestId("map-selection").textContent).toBe(selectedRegion);
-    expect(screen.getByText(/Regional project placement is unavailable for target-access geometry/)).toBeTruthy();
-
-    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "instrument:keck-kcwi-small");
-    await user.click(screen.getByRole("button", { name: "Mock select different region" }));
-    expect(screen.getByTestId("project-preview-count")).toHaveTextContent("0");
-    expect(screen.getByText(/previous candidate preview is stale/)).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "New project" }));
-    await user.click(screen.getByRole("button", { name: "Discard and start new" }));
-    expect(screen.getByRole("radio", { name: "Manual pointings" })).toBeChecked();
-    expect(screen.getByTestId("project-preview-count")).toHaveTextContent("0");
-    expect(screen.getByTestId("map-selection")).toHaveTextContent("[]");
-  });
-
-  it("keeps instrument PA and project rotation independent, follows PA only on request, and invalidates on PA change", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "instrument:vlt-muse-wfm");
-    await user.type(screen.getByLabelText(/PA \(degrees east of north\)/), "30");
-    const selectArea = screen.getByRole("button", { name: /Select area · Draw polygon/ });
-    expect(selectArea).toBeEnabled();
-    await user.click(selectArea);
-    await user.click(screen.getByRole("button", { name: "Mock select region" }));
-    expect(screen.getByText(/Preview lattice shows all admissible candidate sites/)).toBeTruthy();
-    await user.click(screen.getByRole("radio", { name: "Regional mosaic" }));
-    await user.selectOptions(screen.getByRole("combobox", { name: "Project lattice type" }), "rectangular");
-    await user.type(screen.getByLabelText("East spacing"), "3");
-    await user.type(screen.getByLabelText("North spacing"), "3");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Spacing and basis units" }), "deg");
-    await user.click(screen.getByRole("radio", { name: "Independent" }));
-    await user.type(screen.getByLabelText("Lattice rotation · degrees east of north"), "0");
-    await user.click(screen.getByRole("radio", { name: "Region center" }));
-    await user.click(screen.getByRole("button", { name: "Preview lattice" }));
-    await waitFor(() => expect(Number(screen.getByTestId("project-preview-count").textContent)).toBeGreaterThan(0));
-    expect(screen.getByText(/Rotation: 0\.000° · independent/)).toBeTruthy();
-    const independentBasis = screen.getByText(/Basis v1:/).textContent;
-    expect(screen.getByText(/Nominal envelope geometry is approximate/)).toBeTruthy();
-
-    await user.click(screen.getByRole("radio", { name: "Follow instrument PA" }));
-    expect(screen.getByTestId("project-preview-count")).toHaveTextContent("0");
-    await user.click(screen.getByRole("button", { name: "Preview lattice" }));
-    await waitFor(() => expect(Number(screen.getByTestId("project-preview-count").textContent)).toBeGreaterThan(0));
-    expect(screen.getByText(/Rotation: 30\.000° · follows instrument PA/)).toBeTruthy();
-    expect(screen.getByText(/Basis v1:/).textContent).not.toBe(independentBasis);
-
-    await user.clear(screen.getByLabelText(/PA \(degrees east of north\)/));
-    await user.type(screen.getByLabelText(/PA \(degrees east of north\)/), "45");
-    expect(screen.getByTestId("project-preview-count")).toHaveTextContent("0");
-    expect(screen.getByTestId("map-selection")).not.toHaveTextContent("[]");
-    expect(screen.getByText(/previous candidate preview is stale/)).toBeTruthy();
-    expect(apiMocks.planRegion).not.toHaveBeenCalled();
-  });
-
-  it("preserves project lattice preview when switching strategy context on the same instrument", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    const output = screen.getByRole("combobox", { name: "Output profile" });
-    await user.selectOptions(output, "survey:sami-dr1-seven-position");
-    await user.click(screen.getByRole("button", { name: "Mock select region" }));
-    await user.click(screen.getByRole("radio", { name: "Regional mosaic" }));
-    await user.selectOptions(screen.getByRole("combobox", { name: "Project lattice type" }), "rectangular");
-    await user.type(screen.getByLabelText("East spacing"), "3");
-    await user.type(screen.getByLabelText("North spacing"), "3");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Spacing and basis units" }), "deg");
-    await user.click(screen.getByRole("radio", { name: "Independent" }));
-    await user.type(screen.getByLabelText("Lattice rotation · degrees east of north"), "0");
-    await user.click(screen.getByRole("radio", { name: "Region center" }));
-    await user.click(screen.getByRole("button", { name: "Preview lattice" }));
-    await waitFor(() => expect(Number(screen.getByTestId("project-preview-count").textContent)).toBeGreaterThan(0));
-    const candidates = screen.getByTestId("project-preview-count").textContent;
-    const region = screen.getByTestId("map-selection").textContent;
-
-    await user.selectOptions(output, "instrument:aat-sami-61core-15arcsec");
-    expect(screen.getByTestId("map-selection").textContent).toBe(region);
-    expect(screen.getByTestId("project-preview-count").textContent).toBe(candidates);
-    expect(screen.getByText(/candidate sites · preview only/)).toBeTruthy();
-    expect(apiMocks.planRegion).not.toHaveBeenCalled();
   });
 
 });

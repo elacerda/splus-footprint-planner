@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Footprint, GenericLatticeTiling, SkyPolygon, TangentPlaneOffset } from "../types";
-import { createBundledProfileRegistry, DEFAULT_PROFILE, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { DEFAULT_PROFILE, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { createBundledProfileRegistry } from "./fixtures/legacy-registry";
 import { footprintIntersectsRegion } from "./footprint-engine";
 import { generateLatticeCandidates, latticePlanningOrigin, latticePoint, type LatticePoint } from "./lattice";
 import { planRegion } from "./planner";

@@ -6,7 +6,8 @@ import { parseProfileJsonV2, serializeProfile, validateProfileDocumentV2 } from 
 import { ProfileError } from "./errors";
 import { outputFootprintForProfile } from "./footprints";
 import { resolvePlanningProfile } from "./planning";
-import { createBundledProfileRegistry, ProfileRegistry } from "./registry";
+import { ProfileRegistry } from "./registry";
+import { createBundledProfileRegistry } from "../science/fixtures/legacy-registry";
 import bundledJson from "./splus-t80-south.json";
 import smallJson from "./fixtures/small-camera.json";
 

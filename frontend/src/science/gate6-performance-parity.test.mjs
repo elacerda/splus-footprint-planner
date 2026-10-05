@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import baseline from "../data/v0.5.0-gate6-parity.json";
 import { performanceBox, performanceCompound, performancePlans, runPerformancePlan } from "./gate6-performance-workloads";
 import { sampleRegion, tileMask, greedyChoose, createTileMasker } from "./coverage";
@@ -118,4 +118,14 @@ describe("Gate 6 exact pre-optimization parity at 8512ac9", () => {
       expect(actualStop).toBe(expectedStop);
     }
   });
+});
+
+// Preserve the upstream generic regression environment outside the S-PLUS runtime.
+vi.mock("../profiles/registry", async (importOriginal) => {
+  const original = await importOriginal();
+  const library = (await import("./fixtures/production-v3.json")).default;
+  const registry = original.createBundledProfileRegistry();
+  for (const instrument of library.instruments) registry.registerInstrumentProfileV3(instrument);
+  for (const strategy of library.strategies) registry.registerSurveyProfileV3(strategy);
+  return { ...original, profileRegistry: registry };
 });

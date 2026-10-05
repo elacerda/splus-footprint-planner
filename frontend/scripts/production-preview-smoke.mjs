@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,7 +8,7 @@ const frontendDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const distDirectory = join(frontendDirectory, "dist");
 const indexPath = join(distDirectory, "index.html");
 const viteCliPath = join(frontendDirectory, "node_modules", "vite", "bin", "vite.js");
-const appBase = "/jasytata/";
+const appBase = "/splus-cloud/tools/footprint-planner/";
 
 async function findAvailablePort() {
   const server = createServer();
@@ -49,9 +49,9 @@ async function waitForPreview(previewProcess, previewUrl) {
 }
 
 async function assertPreviewAsset(previewUrl, assetUrl, extension) {
-  const parsedAssetUrl = new URL(assetUrl, previewUrl);
+  const parsedAssetUrl = new URL(assetUrl, `${previewUrl}${appBase}`);
   if (!parsedAssetUrl.pathname.startsWith(appBase)) {
-    throw new Error(`Built asset URL is outside the GitHub Pages base: ${assetUrl}`);
+    throw new Error(`Built asset URL is outside the deployment base: ${assetUrl}`);
   }
 
   const relativePath = decodeURIComponent(parsedAssetUrl.pathname.slice(appBase.length));
@@ -89,19 +89,31 @@ const indexBytes = await readFile(indexPath);
 const indexHtml = indexBytes.toString("utf8");
 const assetUrls = [...indexHtml.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)]
   .map((match) => match[1])
-  .filter((assetUrl) => new URL(assetUrl, "http://127.0.0.1").pathname.startsWith(`${appBase}assets/`));
-const jsAssets = assetUrls.filter((assetUrl) => new URL(assetUrl, "http://127.0.0.1").pathname.endsWith(".js"));
-const cssAssets = assetUrls.filter((assetUrl) => new URL(assetUrl, "http://127.0.0.1").pathname.endsWith(".css"));
+  .filter((assetUrl) => new URL(assetUrl, `http://127.0.0.1${appBase}`).pathname.startsWith(`${appBase}assets/`));
+// Verify worker chunks as well as the entry points at an arbitrary nested mount.
+for (const name of await readdir(join(distDirectory, "assets"))) {
+  if (name.endsWith(".js") && !assetUrls.some((url) => url.endsWith(`/assets/${name}`))) assetUrls.push(`./assets/${name}`);
+}
+const library = JSON.parse(await readFile(join(frontendDirectory, "src/science/fixtures/production-v3.json"), "utf8"));
+const genericIds = [...library.instruments, ...library.strategies].map(({ id }) => id);
+for (const assetUrl of assetUrls.filter((url) => url.endsWith(".js"))) {
+  const bytes = await readFile(join(distDirectory, "assets", assetUrl.split("/").at(-1)));
+  for (const id of genericIds) {
+    if (bytes.includes(id)) throw new Error(`Generic library profile ${id} leaked into ${assetUrl}`);
+  }
+}
+const jsAssets = assetUrls.filter((assetUrl) => new URL(assetUrl, `http://127.0.0.1${appBase}`).pathname.endsWith(".js"));
+const cssAssets = assetUrls.filter((assetUrl) => new URL(assetUrl, `http://127.0.0.1${appBase}`).pathname.endsWith(".css"));
 
 if (jsAssets.length === 0 || cssAssets.length === 0) {
-  throw new Error("dist/index.html must emit at least one JavaScript and one CSS asset under /jasytata/assets/.");
+  throw new Error("dist/index.html must emit at least one JavaScript and one CSS asset under the relative assets directory.");
 }
 
 const port = await findAvailablePort();
 const previewUrl = `http://127.0.0.1:${port}`;
 const previewProcess = spawn(
   process.execPath,
-  [viteCliPath, "preview", "--host", "127.0.0.1", "--port", String(port), "--strictPort"],
+  [viteCliPath, "preview", "--host", "127.0.0.1", "--port", String(port), "--strictPort", "--base", appBase],
   { cwd: frontendDirectory, stdio: "ignore" },
 );
 
@@ -118,7 +130,7 @@ try {
   }
 
   for (const assetUrl of assetUrls) {
-    const pathname = new URL(assetUrl, previewUrl).pathname;
+    const pathname = new URL(assetUrl, `${previewUrl}${appBase}`).pathname;
     const extension = pathname.endsWith(".js") ? ".js" : ".css";
     await assertPreviewAsset(previewUrl, assetUrl, extension);
   }

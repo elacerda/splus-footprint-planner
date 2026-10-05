@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBundledProfileRegistry } from "./registry";
+import { createBundledProfileRegistry } from "../science/fixtures/legacy-registry";
 import { automaticRegionUnavailableMessage, derivePlanningCapabilities, emptyPlanningStateMessage, planningModeLabel } from "./planning-capabilities";
 
 const registry = createBundledProfileRegistry();

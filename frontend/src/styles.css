@@ -611,3 +611,17 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 .project-lattice-summary { display: grid; gap: 5px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .project-lattice-summary strong { color: var(--ink); }
 .project-mode-options :focus-visible, .project-placement-options :focus-visible { outline: 2px solid #038b97; outline-offset: 2px; }
+
+/* The specialized product name wraps while controls stay accessible on short screens. */
+.brand-title { font-size: 18px; line-height: 1.25; white-space: normal; }
+.brand-block { min-width: 0; flex-direction: column; align-items: flex-start; gap: 3px; }
+.brand-profile { max-width: none; white-space: normal; overflow: visible; }
+@media (max-width: 760px) {
+  .brand-title { font-size: 16px; }
+}
+
+@media (max-width: 680px) {
+  .topbar { flex-wrap: wrap; padding: 10px; }
+  .brand-block { flex-basis: 100%; }
+  .topbar-actions { width: 100%; margin-left: 0; justify-content: flex-end; }
+}

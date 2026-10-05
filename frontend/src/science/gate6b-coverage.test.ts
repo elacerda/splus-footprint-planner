@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Footprint, FootprintSemanticsV3, SkyPolygon, TileRecord } from "../types";
-import { createBundledProfileRegistry, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { createBundledProfileRegistry } from "./fixtures/legacy-registry";
 import { ProfileRegistry } from "../profiles/registry";
-import kcwiV2Instruments from "../profiles/kcwi-slicers.json";
+import kcwiV2Instruments from "./fixtures/kcwi-slicers.json";
 import { CoverageUnavailableError, coveredMask, greedyChoose, measureActiveCoverage, measureMetrics, prepareCoverageGrid, sampleRegion, tileMask } from "./coverage";
 import { resolvePlanningProfile } from "../profiles/planning";
 import { footprintCharacteristicScale } from "./footprint-engine";

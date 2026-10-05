@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InstrumentProfileV3, SkyPolygon, SurveyProfileV3, TileRecord } from "../types";
-import { createBundledProfileRegistry } from "../profiles/registry";
+import { createBundledProfileRegistry } from "./fixtures/legacy-registry";
 import { projectCoverageProfile } from "../profiles/planning";
 import { resolveFootprintForTile } from "../profiles/footprints";
 import { buildInstrumentCoordinateCsv } from "./export";

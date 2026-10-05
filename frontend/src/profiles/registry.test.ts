@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { InstrumentProfileV2, TileRecord } from "../types";
-import { createBundledProfileRegistry, ProfileRegistry } from "./registry";
+import { ProfileRegistry } from "./registry";
+import { createBundledProfileRegistry } from "../science/fixtures/legacy-registry";
 import { SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "./v2";
 import { validateInstrumentProfileV2 } from "./schema-v2";
 import { validateProfileDocument } from "./document";
 import { footprintForTile } from "./footprints";
 import { DEFAULT_PROFILE } from "./index";
-import kcwiInstruments from "./kcwi-slicers.json";
+import kcwiInstruments from "../science/fixtures/kcwi-slicers.json";
 
 describe("browser profile registry", () => {
   it("resolves the bundled T80 instrument and S-PLUS survey by stable ID", () => {

@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import type { CenterInput, CoveragePolicy, Footprint, SkyPolygon } from "../types";
-import { createBundledProfileRegistry, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { createBundledProfileRegistry } from "./fixtures/legacy-registry";
 import { greedyChoose, measureMetrics, sampleRegion, tileMask, type CoverageGrid } from "./coverage";
 import { footprintArea, footprintCharacteristicScale, footprintContainsPoint, rotateLocalOffset } from "./footprint-engine";
 import { modulo } from "./math";

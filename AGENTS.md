@@ -16,19 +16,15 @@ For implementation, debugging, refactoring, or review:
 
 The graph is a navigation and context-reduction aid, not a source of scientific truth. Exact source code, tests, contracts, and explicitly authoritative project documentation take precedence over graph summaries.
 
-## Jasytata scientific compatibility
+## Product and scientific compatibility
 
-The published v0.4.0 scientific baseline is frozen at commit
-`7613a08b1cd1f23bfc40918c8391cea995085af4`, tag `v0.4.0`. Its behavior remains
-regression-protected, including the intended T80-South/S-PLUS compatibility
-contract and inherited v0.2.0 behavior. v0.5.0 work is on branch `0.5.0` and
-follows `docs/V0.5.0_ROADMAP.md`; later gates are not permission to implement
-their work opportunistically. Do not modify `main` or move/recreate `v0.4.0`.
-
-Do not change scientific behavior, constants, fixture expectations, coordinate semantics, coverage semantics, or T80 compatibility unless the current task explicitly authorizes that change.
-
-For v0.4.0 compatibility work, use `docs/V0.4.0_ROADMAP.md` as historical
-release evidence. For v0.5.0, the v0.5.0 roadmap is the active authority.
+This independent repository is S-PLUS Footprint Planner, derived from Jasytata
+main dead6f54f7340f08f7fe3e7eb3c38ff2e5facd65. The product starts at 0.1.0.
+Keep the protected Schema v2 T80-South/S-PLUS pair and scientific regressions
+unchanged. Production registers only this pair; generic fixtures exist solely for
+historical regression tests. GitHub splus-collab/splus-utilities main,
+plot-footprint/tiles_nc.csv, is canonical; bundled data are resilience only.
+Never modify the source Jasytata repository or its branches/tags through this repo.
 
 ## Validation
 

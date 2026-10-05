@@ -1,7 +1,8 @@
 import { measureResolvedCoverage } from "./test-support/resolved-coverage";
 import { describe, expect, it } from "vitest";
 import { validateInstrumentProfileV2 } from "../profiles/schema-v2";
-import { createBundledProfileRegistry, SPLUS_SURVEY_V2 } from "../profiles";
+import { SPLUS_SURVEY_V2 } from "../profiles";
+import { createBundledProfileRegistry } from "./fixtures/legacy-registry";
 import type { CenterInput, Footprint, GenericLatticeTiling, SkyPolygon, TangentPlaneOffset } from "../types";
 import { makeCenterProposals } from "./catalogue";
 import {} from "./coverage";

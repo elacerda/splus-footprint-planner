@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Footprint, InferencePolicy, SkyPolygon, TilingModel, TileRecord } from "../types";
-import { createBundledProfileRegistry, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { createBundledProfileRegistry } from "./fixtures/legacy-registry";
 import { measureActiveCoverage } from "./coverage";
 import { planRegion } from "./planner";
 import { deriveExposurePlacements, type ObservingSequence } from "./exposure-sequence";
