@@ -1,8 +1,12 @@
 # S-PLUS Footprint Planner
 
+[![Version](https://img.shields.io/badge/version-0.1.0-blue)](frontend/package.json) [![S-PLUS Planner Online](https://img.shields.io/website?url=https%3A%2F%2Felacerda.github.io%2Fsplus-footprint-planner%2F&label=S-PLUS%20Planner%20Online)](https://elacerda.github.io/splus-footprint-planner/) [![GitHub Pages](https://github.com/elacerda/splus-footprint-planner/actions/workflows/pages.yml/badge.svg)](https://github.com/elacerda/splus-footprint-planner/actions/workflows/pages.yml) [![CI](https://github.com/elacerda/splus-footprint-planner/actions/workflows/ci.yml/badge.svg)](https://github.com/elacerda/splus-footprint-planner/actions/workflows/ci.yml) [![License](https://img.shields.io/github/license/elacerda/splus-footprint-planner)](LICENSE)
+
 T80-South pointing & coverage planning, powered by Jasytata. This independent
 browser application helps S-PLUS observers extend existing survey coverage,
 review proposed tiles and download their centers. Version **0.1.0**.
+
+**Live application:** [elacerda.github.io/splus-footprint-planner](https://elacerda.github.io/splus-footprint-planner/)
 
 ## Fixed scientific scope
 
@@ -87,12 +91,32 @@ services; the official catalogue fetch is the only new runtime data dependency.
 Catalogue fallback and planning work without GitHub access. A fully offline sky
 image renderer is not supplied by this application.
 
-The build uses a **relative Vite base**. Serve the contents of `frontend/dist/`
-under any static subpath, for example `/footprint-planner/`, with a trailing slash
-(or a redirect to it). No `/jasytata/` path is embedded. The production preview
-smoke gate checks emitted JavaScript and CSS bytes. Automated tests mock catalogue
-requests and do not depend on GitHub. The snapshot is embedded in the application
-bundle, so no additional fallback fetch is needed.
+## GitHub Pages and portable hosting
+
+The public application is hosted at
+[https://elacerda.github.io/splus-footprint-planner/](https://elacerda.github.io/splus-footprint-planner/).
+The [Deploy GitHub Pages workflow](.github/workflows/pages.yml) runs on every push
+to `main` and can also be started manually from the Actions tab. It installs
+locked dependencies, runs the full test suite, lint and typecheck, builds the
+application and checks its production artifact before deploying `frontend/dist/`.
+A failed validation prevents publication of that revision.
+
+The repository's **Settings → Pages → Build and deployment → Source** is set to
+**GitHub Actions**. The `github-pages` environment records deployment status and
+the published URL. See the [GitHub custom workflow documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)
+for the hosting mechanism. The README badges link to the live site, deployment
+workflow, CI and license; the version badge identifies this independent product
+rather than the historical Jasytata tags.
+
+The build continues to use a **relative Vite base**. The same artifact works at
+`/splus-footprint-planner/` and arbitrary S-PLUS Cloud subpaths. Serve the contents
+of `frontend/dist/` at a URL ending in `/` (or redirect to one). The production
+preview smoke gate checks emitted JavaScript, CSS and the planning worker under
+an arbitrary nested mount, and rejects generic profile data in the bundles.
+Automated tests mock catalogue requests and do not depend on GitHub. The fallback
+snapshot is embedded in the application bundle; it needs no separate data fetch.
+
+## Updating the fallback catalogue
 
 To refresh the fallback reproducibly:
 
@@ -118,7 +142,8 @@ This is a pruning of that corrected application, not a reconstruction of an olde
 release. Useful Git history is retained. `upstream` identifies Jasytata;
 `origin` identifies the independent `splus-footprint-planner` repository.
 Inherited tags describe Jasytata releases; this product's version history starts
-at 0.1.0. No remote repository is created or pushed by local derivation.
+at 0.1.0. This independent repository is published as
+[`elacerda/splus-footprint-planner`](https://github.com/elacerda/splus-footprint-planner).
 
 The generic survey/instrument selection, Schema v3 library in the runtime,
 profile authoring/import/export, PA and sequence controls, generic mosaics,
