@@ -35,6 +35,13 @@ interface ColumnMapping {
 
 const EMPTY_CENTERS: CenterInput[] = [];
 const EMPTY_IDS: string[] = [];
+const PREVIEW_PAGE_SIZE = 25;
+const WORKFLOW_STEPS: ReadonlyArray<readonly [number, string]> = [
+  [1, "Area"],
+  [2, "Coverage"],
+  [3, "Generate"],
+  [4, "Review"],
+];
 type ThemeMode = "light" | "dark";
 
 const THEME_STORAGE_KEY = "splus-footprint-planner-theme";
@@ -63,6 +70,7 @@ export default function App() {
   const [coverageStrategy, setCoverageStrategy] = useState<CoverageStrategy>("complete");
   const [proposals, setProposals] = useState<TileRecord[]>([]);
   const [pending, setPending] = useState<ProposalPreview | null>(null);
+  const [previewPage, setPreviewPage] = useState(0);
   const [proposalContext, setProposalContext] = useState<ProposalPreview | null>(null);
   const [activeMetrics, setActiveMetrics] = useState<CoverageResult | null>(null);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
@@ -114,10 +122,17 @@ export default function App() {
   }, [activeContext, planningTiles]);
   const hasCatalogue = datasets.length > 0;
   const hasProjectContent = Boolean(datasets.length || columnMapping || proposals.length || pending || regionPolygon || referenceMarker || importText || parsedCenters);
+  const currentWorkflowStep = pending || proposals.length > 0 ? 4 : planningActive ? 3 : regionPolygon ? 2 : 1;
+  const previewPageCount = Math.max(1, Math.ceil((pending?.tiles.length ?? 0) / PREVIEW_PAGE_SIZE));
+  const currentPreviewPage = Math.min(previewPage, previewPageCount - 1);
+  const previewStart = currentPreviewPage * PREVIEW_PAGE_SIZE;
+  const previewEnd = Math.min(previewStart + PREVIEW_PAGE_SIZE, pending?.tiles.length ?? 0);
 
   useEffect(() => {
     try { window.localStorage.setItem(THEME_STORAGE_KEY, theme); } catch { /* Session theme remains usable. */ }
   }, [theme]);
+
+  useEffect(() => setPreviewPage(0), [pending]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -566,11 +581,16 @@ export default function App() {
           </section>
 
           <section className="panel-section planning-section">
-            <SectionHeading title="Region plan" trailing={regionPolygon ? "AREA SET" : undefined} />
-            <div className="mode-buttons">
-              <button className="button button-outline" aria-pressed={mapMode === "add-tile"} onClick={() => { setMapMode(mapMode === "add-tile" ? "idle" : "add-tile"); setSelectingRegion(false); }} disabled={busy}><Icon name="crosshair" /> Single tile</button>
-              <button className="button button-outline" onClick={() => importRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" })}><Icon name="list" /> Import centers</button>
-            </div>
+            <SectionHeading title="Plan a region" trailing={regionPolygon ? "AREA SET" : undefined} />
+            <ol className="planning-progress" aria-label="Planning steps">
+              {WORKFLOW_STEPS.map(([step, label]) => (
+                <li key={step} className={step < currentWorkflowStep ? "is-complete" : step === currentWorkflowStep ? "is-current" : undefined}
+                  aria-current={step === currentWorkflowStep ? "step" : undefined}>
+                  <span>{step}</span><strong>{label}</strong>
+                </li>
+              ))}
+            </ol>
+            <p className="panel-copy workflow-intro">Choose a polygon or rectangle to define the sky area.</p>
             <RegionAuthoring key={`region-${projectSession}`} polygonLabel="Select area" selecting={selectingRegion}
               onPolygon={beginRegionSelection} onCancelPolygon={cancelRegionDrawing} onApply={applySelectedRegion} disabled={busy} />
             <ReferenceCoordinate key={`reference-${projectSession}`} marker={referenceMarker} onChange={setReferenceMarker} />
@@ -581,76 +601,99 @@ export default function App() {
               {import.meta.env.DEV && <details className="development-plan-input"><summary>Development: plan input</summary><pre>{JSON.stringify(regionPolygon.vertices, null, 2)}</pre><button className="text-button" disabled={!debugRequestJson} onClick={() => {
                 void navigator.clipboard.writeText(debugRequestJson).then(() => setNotice("Last plan request JSON copied.")).catch(() => setError("Could not copy the plan request JSON."));
               }}>Copy last plan request JSON</button></details>}
-            </div> : <p className="panel-copy">Select a sky polygon to extend S-PLUS coverage.</p>}
+            </div> : null}
             <fieldset className="coverage-strategy"><legend>Coverage strategy</legend>
               <label><input type="radio" name="coverage-strategy" checked={coverageStrategy === "complete"} onChange={() => changeCoverageStrategy("complete")} /><span><strong>Complete coverage (default)</strong><small>Attempts to cover every sampled point in the selected region.</small></span></label>
               <label><input type="radio" name="coverage-strategy" checked={coverageStrategy === "efficient"} onChange={() => changeCoverageStrategy("efficient")} /><span><strong>Efficient coverage</strong><small>Uses the S-PLUS coverage floor and marginal efficiency threshold to save tiles.</small></span></label>
               <p className="fine-print">Efficient may leave small residual gaps. Choose Complete for exhaustive sampled coverage.</p>
             </fieldset>
+            <div className="generate-step-label"><span>Next step</span><strong>Generate and review the proposal</strong></div>
             <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!regionPolygon || busy || catalogueSource === "loading"}>{busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan</button>
             {planningActive && <button className="button button-quiet button-full" onClick={cancelPlanningRun}>Cancel planning</button>}
             <p className="fine-print">Tiles can extend beyond the selected area to preserve the S-PLUS grid.</p>
           </section>
-          <section ref={importRef} className="panel-section import-section">
-            <SectionHeading title="Paste centers" />
-            <label className="visually-hidden" htmlFor="centers-text">RA and DEC pairs</label>
-            <textarea
-              id="centers-text"
-              value={importText}
-              onChange={(event) => { setImportText(event.target.value); setParsedCenters(null); }}
-              placeholder={"RA, DEC\n10:03:05, -23:54:31\n150.5, -24.25"}
-              rows={4}
-              disabled={busy}
-            />
-            <button className="button button-outline button-full" onClick={() => void handleParseCenters()} disabled={busy || !importText.trim()}>
-              Validate and preview
-            </button>
-            {parsedCenters && (
-              <div className="import-preview">
-                <strong>{parsedCenters.length} centers parsed</strong>
-                <div className="preview-coordinate-list">
-                  {parsedCenters.slice(0, 4).map((center, index) => (
-                    <span key={`${center.ra_deg}-${index}`}>{center.ra_deg.toFixed(5)}°, {center.dec_deg.toFixed(5)}°</span>
-                  ))}
-                  {parsedCenters.length > 4 && <span>and {parsedCenters.length - 4} more</span>}
-                </div>
-                <button className="button button-primary button-full" onClick={() => void handleStageImported()} disabled={busy}>Stage import preview</button>
-              </div>
-            )}
-          </section>
 
-          <section className="panel-section layers-section">
-            <SectionHeading title="Map layers" />
-            <div className="layer-group-heading">Data</div>
-            {datasets.map((dataset) => (
-              <div key={dataset.id}>
-                <label className="dataset-layer">
-                  <input type="checkbox" aria-label={`Show ${dataset.filename}`} checked={dataset.visible} onChange={(event) => {
-                    setDatasets((previous) => previous.map((item) => item.id === dataset.id ? { ...item, visible: event.target.checked } : item));
+          <details className="advanced-tools">
+            <summary className="advanced-tools-summary">
+              <span>More tools</span>
+              <span>Single tile · Import centers · Map layers</span>
+            </summary>
+            <div className="advanced-tools-content">
+              <section className="panel-section single-tile-section">
+                <SectionHeading title="Place a single tile" />
+                <p className="panel-copy">Click a position on the map to stage one center for review.</p>
+                <button className="button button-outline button-full" aria-pressed={mapMode === "add-tile"}
+                  onClick={() => { setMapMode(mapMode === "add-tile" ? "idle" : "add-tile"); setSelectingRegion(false); }} disabled={busy}>
+                  <Icon name="crosshair" /> Single tile
+                </button>
+              </section>
+
+              <section ref={importRef} className="panel-section import-section">
+                <SectionHeading title="Import centers" />
+                <p className="panel-copy">Paste RA/DEC pairs for tiles that are already selected.</p>
+                <label className="visually-hidden" htmlFor="centers-text">RA and DEC pairs</label>
+                <textarea
+                  id="centers-text"
+                  value={importText}
+                  onChange={(event) => { setImportText(event.target.value); setParsedCenters(null); }}
+                  placeholder={"RA, DEC\n10:03:05, -23:54:31\n150.5, -24.25"}
+                  rows={4}
+                  disabled={busy}
+                />
+                <button className="button button-outline button-full" onClick={() => void handleParseCenters()} disabled={busy || !importText.trim()}>
+                  Validate and preview
+                </button>
+                {parsedCenters && (
+                  <div className="import-preview">
+                    <strong>{parsedCenters.length} centers parsed</strong>
+                    <div className="preview-coordinate-list">
+                      {parsedCenters.slice(0, 4).map((center, index) => (
+                        <span key={`${center.ra_deg}-${index}`}>{center.ra_deg.toFixed(5)}°, {center.dec_deg.toFixed(5)}°</span>
+                      ))}
+                      {parsedCenters.length > 4 && <span>and {parsedCenters.length - 4} more</span>}
+                    </div>
+                    <button className="button button-primary button-full" onClick={() => void handleStageImported()} disabled={busy}>Stage import preview</button>
+                  </div>
+                )}
+              </section>
+
+              <section className="panel-section layers-section">
+                <SectionHeading title="Map layers" />
+                <div className="layer-group-heading">Data</div>
+                {datasets.map((dataset) => (
+                  <div key={dataset.id}>
+                    <label className="dataset-layer">
+                      <input type="checkbox" aria-label={`Show ${dataset.filename}`} checked={dataset.visible} onChange={(event) => {
+                        setDatasets((previous) => previous.map((item) => item.id === dataset.id ? { ...item, visible: event.target.checked } : item));
+                        setSelectedTileId(null);
+                      }} />
+                      <span className="layer-swatch" style={{ "--swatch": dataset.color } as CSSProperties} />
+                      <span title={dataset.filename}>{dataset.filename}</span>
+                      <strong>{dataset.tiles.length.toLocaleString()}</strong>
+                    </label>
+                  </div>
+                ))}
+                <div className="layer-group-heading">Planning</div>
+                <PlanningLayer label="Proposed tiles" color="var(--orange)" checked={planningLayers.proposals}
+                  count={activeOutputProposals.length + (pending?.tiles.length ?? 0)} onChange={(checked) => {
+                    setPlanningLayers((previous) => ({ ...previous, proposals: checked }));
                     setSelectedTileId(null);
                   }} />
-                  <span className="layer-swatch" style={{ "--swatch": dataset.color } as CSSProperties} />
-                  <span title={dataset.filename}>{dataset.filename}</span>
-                  <strong>{dataset.tiles.length.toLocaleString()}</strong>
-                </label>
-              </div>
-            ))}
-            <div className="layer-group-heading">Planning</div>
-            <PlanningLayer label="Proposed tiles" color="var(--orange)" checked={planningLayers.proposals}
-              count={activeOutputProposals.length + (pending?.tiles.length ?? 0)} onChange={(checked) => {
-                setPlanningLayers((previous) => ({ ...previous, proposals: checked }));
-                setSelectedTileId(null);
-              }} />
-            <PlanningLayer label="Selected region" color="var(--yellow)" checked={planningLayers.region}
-              onChange={(checked) => setPlanningLayers((previous) => ({ ...previous, region: checked }))} />
-            <PlanningLayer label="Inference anchors" color="var(--violet)" checked={planningLayers.anchors}
-              count={activeContext?.inference?.anchor_tile_ids.length ?? 0}
-              onChange={(checked) => setPlanningLayers((previous) => ({ ...previous, anchors: checked }))} />
-            <PlanningLayer label="Candidate lattice" color="var(--green)" checked={planningLayers.lattice}
-              count={activeContext?.candidateCenters.length ?? 0}
-              onChange={(checked) => setPlanningLayers((previous) => ({ ...previous, lattice: checked }))} />
-            <p className="fine-print">Visibility affects only the map. Hidden catalogues still contribute to plans. Disabled proposals appear as gray crosses.</p>
-          </section>
+                <PlanningLayer label="Selected region" color="var(--yellow)" checked={planningLayers.region}
+                  onChange={(checked) => setPlanningLayers((previous) => ({ ...previous, region: checked }))} />
+                <details className="advanced-layers">
+                  <summary><span>Scientific overlays</span><span>2</span></summary>
+                  <PlanningLayer label="Inference anchors" color="var(--violet)" checked={planningLayers.anchors}
+                    count={activeContext?.inference?.anchor_tile_ids.length ?? 0}
+                    onChange={(checked) => setPlanningLayers((previous) => ({ ...previous, anchors: checked }))} />
+                  <PlanningLayer label="Candidate lattice" color="var(--green)" checked={planningLayers.lattice}
+                    count={activeContext?.candidateCenters.length ?? 0}
+                    onChange={(checked) => setPlanningLayers((previous) => ({ ...previous, lattice: checked }))} />
+                </details>
+                <p className="fine-print">Visibility only affects the map. Hidden catalogues still contribute to plans; disabled proposals appear as gray crosses.</p>
+              </section>
+            </div>
+          </details>
         </aside>
 
         <section className="map-column" aria-label="Sky viewer">
@@ -741,17 +784,31 @@ export default function App() {
                   <div>{anchors.slice(0, 12).map((tile) => <span key={tile.id}>{tile.name}</span>)}{anchors.length > 12 && <span>+{anchors.length - 12} more</span>}</div>
                 </details>
               )}
-              <div className="proposal-list-head"><span>NEW TILE CENTERS</span><span>{pending.tiles.length}</span></div>
-              <div className="proposal-list">
-                {pending.tiles.length ? pending.tiles.slice(0, 8).map((tile, index) => (
-                  <div className="proposal-row" key={`${tile.id}-${index}`}>
-                    <span className="proposal-index">{String(index + 1).padStart(2, "0")}</span>
-                    <span><strong>{tile.ra_deg.toFixed(4)}°</strong><small>{tile.dec_deg.toFixed(4)}°</small></span>
-
-                  </div>
-                )) : <p className="panel-copy">{(pending.metrics?.coverage_status === "resolved" || pending.metrics?.coverage_status === "legacy_compatible") && pending.metrics.remaining_uncovered_fraction === 0 ? "Existing coverage already satisfies this plan." : "No admissible candidate adds sampled coverage; see the scientific diagnostics."}</p>}
-                {pending.tiles.length > 8 && <span className="more-row">+{pending.tiles.length - 8} more preview centers</span>}
+              <div className="proposal-list-head"><span>New tile centers</span><span>{pending.tiles.length}</span></div>
+              {pending.tiles.length > 0 && (
+                <p className="proposal-page-status" role="status">
+                  Showing {previewStart + 1}–{previewEnd} of {pending.tiles.length} centers
+                </p>
+              )}
+              <div className="proposal-list" role="list" aria-label="Proposed tile centers">
+                {pending.tiles.length ? pending.tiles.slice(previewStart, previewEnd).map((tile, index) => {
+                  const centerIndex = previewStart + index;
+                  return (
+                    <div className="proposal-row" role="listitem" key={`${tile.id}-${centerIndex}`}>
+                      <span className="proposal-index">{String(centerIndex + 1).padStart(2, "0")}</span>
+                      <span><strong>{tile.ra_deg.toFixed(4)}°</strong><small>{tile.dec_deg.toFixed(4)}°</small></span>
+                    </div>
+                  );
+                }) : <p className="panel-copy">{(pending.metrics?.coverage_status === "resolved" || pending.metrics?.coverage_status === "legacy_compatible") && pending.metrics.remaining_uncovered_fraction === 0 ? "Existing coverage already satisfies this plan." : "No admissible candidate adds sampled coverage; see the scientific diagnostics."}</p>}
               </div>
+              {previewPageCount > 1 && (
+                <nav className="proposal-pagination" aria-label="Proposal center pages">
+                  <button className="button button-outline" type="button" onClick={() => setPreviewPage(currentPreviewPage - 1)} disabled={currentPreviewPage === 0}>Previous 25</button>
+                  <span>Page {currentPreviewPage + 1} of {previewPageCount}</span>
+                  <button className="button button-outline" type="button" onClick={() => setPreviewPage(currentPreviewPage + 1)} disabled={currentPreviewPage >= previewPageCount - 1}>Next 25</button>
+                </nav>
+              )}
+              {pending.tiles.length === 0 && <p className="proposal-page-status">No new centers to review.</p>}
               <div className="proposal-actions">
                 <button className="button button-primary button-full" onClick={acceptPreview} disabled={!pending.tiles.length}><Icon name="check" /> Accept proposal</button>
                 <button className="button button-quiet button-full" onClick={cancelPreview}>Cancel preview</button>

@@ -128,11 +128,27 @@ describe("S-PLUS product workflows", () => {
     expect(captured.map!.datasets[0].filename).toBe("Official S-PLUS tiles");
   });
 
+  it("shows the planning sequence and tucks alternative tools behind a disclosure", async () => {
+    const user = userEvent.setup(); render(<App />); await loaded();
+    const steps = screen.getByRole("list", { name: "Planning steps" });
+    expect(steps.querySelector('[aria-current="step"]')?.textContent).toContain("Area");
+    expect(document.querySelector(".advanced-tools")?.hasAttribute("open")).toBe(false);
+
+    await user.click(screen.getByText("More tools", { exact: true }));
+    expect(screen.getByRole("button", { name: "Single tile" })).toBeEnabled();
+    expect(screen.getByRole("heading", { name: "Import centers" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Map layers" })).toBeTruthy();
+    expect(document.querySelector(".advanced-layers")?.hasAttribute("open")).toBe(false);
+    await user.click(screen.getByText("Scientific overlays", { exact: true }));
+    expect(screen.getByRole("checkbox", { name: "Show Inference anchors" })).toBeEnabled();
+  });
+
   it("retains Single tile and Import centers with reversible proposals", async () => {
     const user = userEvent.setup(); render(<App />); await loaded();
     expect(screen.getByRole("radio", { name: /Complete coverage/ })).toBeEnabled();
     expect(screen.getByRole("radio", { name: /Efficient coverage/ })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Import centers" })).toBeEnabled();
+    await user.click(screen.getByText("More tools", { exact: true }));
+    expect(screen.getByRole("heading", { name: "Import centers" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Single tile" }));
     await user.click(screen.getByRole("button", { name: "Place sky center" }));
     await screen.findByRole("button", { name: "Accept proposal" });

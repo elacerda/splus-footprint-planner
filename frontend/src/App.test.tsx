@@ -132,6 +132,11 @@ async function uploadCatalogueFixture(user: ReturnType<typeof userEvent.setup>) 
   await screen.findByLabelText("Show tiles_nc.csv");
 }
 
+async function openAdvancedMapLayers(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByText("More tools", { exact: true }));
+  await user.click(screen.getByText("Scientific overlays", { exact: true }));
+}
+
 function makePlan(count: number): RegionPlanResponse {
   const tiles = Array.from({ length: count }, (_, index) => ({
     id: `preview-${index + 1}`,
@@ -282,13 +287,13 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
     expect(document.querySelector(".catalogue-summary .summary-number")).toHaveTextContent("0");
 
+    await user.click(screen.getByText("More tools", { exact: true }));
     await user.click(screen.getByRole("button", { name: /single tile/i }));
     expect(screen.getByTestId("map-interaction-state")).toHaveTextContent("add-tile:false:0");
     await user.click(screen.getByRole("button", { name: "Mock place tile" }));
     expect(await screen.findByText("Manual sky positions are ready for review.")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));
 
-    await user.click(screen.getByRole("button", { name: /import centers/i }));
     expect(screen.getByLabelText("RA and DEC pairs")).toBeEnabled();
     await user.type(screen.getByLabelText("RA and DEC pairs"), "10:03:05, -23:54:31");
     await user.click(screen.getByRole("button", { name: "Validate and preview" }));
@@ -612,16 +617,22 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await waitFor(() => expect(apiMocks.uploadCatalogue).toHaveBeenLastCalledWith(file, expect.objectContaining({ raColumn: "RA", decColumn: "DEC", raUnit: "auto" })));
   });
 
-  it("shows eight proposal preview centers and a compact remainder count", async () => {
+  it("pages through the full proposal center list for numeric review", async () => {
     const user = userEvent.setup();
-    apiMocks.planRegion.mockResolvedValue(makePlan(10));
+    apiMocks.planRegion.mockResolvedValue(makePlan(30));
     renderFresh();
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
 
     expect(await screen.findByText("Proposal preview")).toBeTruthy();
-    expect(document.querySelectorAll(".proposal-row")).toHaveLength(8);
-    expect(screen.getByText("+2 more preview centers")).toBeTruthy();
+    expect(document.querySelectorAll(".proposal-row")).toHaveLength(25);
+    expect(screen.getByText("Showing 1–25 of 30 centers")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Next 25" }));
+    expect(document.querySelectorAll(".proposal-row")).toHaveLength(5);
+    expect(screen.getByText("Showing 26–30 of 30 centers")).toBeTruthy();
+    expect(screen.getByText("150.0000°")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Previous 25" }));
+    expect(document.querySelectorAll(".proposal-row")).toHaveLength(25);
   });
 
   it("keeps planning layer visibility independent from proposal, region, metrics, and export", async () => {
@@ -632,6 +643,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
     await waitFor(() => expect(apiMocks.measureCoverage).toHaveBeenCalled());
+    await openAdvancedMapLayers(user);
     const coverageCalls = apiMocks.measureCoverage.mock.calls.length;
     expect(screen.getByTestId("map-layer-state").textContent).toBe("2:true:true:false:false");
     await user.click(screen.getByRole("checkbox", { name: "Show Proposed tiles" }));
@@ -679,6 +691,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     expect(screen.getByText("Nearby anchor candidates").parentElement?.textContent).toContain("7");
     expect(screen.getByText("Inference anchors used").parentElement?.textContent).toContain("1");
+    await openAdvancedMapLayers(user);
     expect(screen.getByRole("checkbox", { name: "Show Inference anchors" }).closest("label")?.textContent).toContain("1");
     await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
     await waitFor(() => expect(apiMocks.measureCoverage).toHaveBeenCalled());
@@ -705,6 +718,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await waitFor(() => expect(screen.getByText("Existing contributors").parentElement?.textContent).toContain("11"));
     expect(screen.getByText("Already covered").parentElement?.textContent).toContain("3.3%");
     expect(screen.queryByText("Inference anchors used")).toBeNull();
+    await openAdvancedMapLayers(user);
     expect(screen.getByRole("checkbox", { name: "Show Inference anchors" }).closest("label")?.textContent).toContain("0");
     expect(screen.getByText("2 enabled · 0 disabled")).toBeTruthy();
   });
@@ -723,6 +737,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     expect(screen.getByText("Nearby anchor candidates").parentElement?.textContent).toContain("1");
     expect(screen.getByText("Inference anchors used").parentElement?.textContent).toContain("0");
+    await openAdvancedMapLayers(user);
     expect(screen.getByRole("checkbox", { name: "Show Inference anchors" }).closest("label")?.textContent).toContain("0");
   });
 

@@ -77,6 +77,10 @@ The product name is S-PLUS Footprint Planner. Its existing description is
 “T80-South pointing & coverage planning, powered by Jasytata.” Preserve the
 upstream attribution and MIT licensing.
 
+Ubuntu Sans is the product interface typeface, bundled locally under its
+upstream font license. Use the existing monospace face for coordinates and
+other measured scientific values.
+
 ## Evidence on Hand
 
 - `README.md`: current product workflows, scientific scope, limitations,
