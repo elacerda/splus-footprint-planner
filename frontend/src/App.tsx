@@ -1,6 +1,7 @@
 import { planningGeometryContext } from "./science/planning-operation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import splusLogo from "./assets/splus-logo.png";
 import AladinMap, { type MapMode } from "./AladinMap";
 import { RegionAuthoring } from "./RegionAuthoring";
 import { ReferenceCoordinate } from "./ReferenceCoordinate";
@@ -462,8 +463,11 @@ export default function App() {
     <main className="app-shell" data-theme={theme}>
       <header className="topbar">
         <div className="brand-block">
-          <h1 className="brand-title">S-PLUS Footprint Planner</h1>
-          <span className="brand-profile">T80-South pointing &amp; coverage planning</span>
+          <img className="brand-logo" src={splusLogo} alt="S-PLUS" width={42} height={42} />
+          <div className="brand-copy">
+            <h1 className="brand-title">S-PLUS Footprint Planner</h1>
+            <span className="brand-profile">T80-South pointing &amp; coverage planning</span>
+          </div>
         </div>
         <div className="topbar-state">
           <span className="topbar-state-copy">
