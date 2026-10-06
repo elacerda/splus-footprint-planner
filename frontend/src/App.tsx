@@ -847,7 +847,7 @@ export default function App() {
             <p className="panel-copy">{proposals.length} generated · {enabledProposals.length} enabled · {proposals.length - enabledProposals.length} disabled</p>
             <p className="fine-print">ICRS decimal degrees · RA, DEC, EPOCH · epoch 2000. Enabled new tiles only.</p>
             <button className="button button-download button-full" onClick={() => void exportFile()} disabled={!enabledProposals.length || busy}><Icon name="download" /> Download new_tiles.csv</button>
-            <p className="fine-print">Powered by Jasytata</p>
+            <p className="fine-print">Powered by <a href="https://github.com/elacerda/jasytata" target="_blank" rel="noreferrer">Jasytata</a></p>
           </section>
         </aside>
       </section>
