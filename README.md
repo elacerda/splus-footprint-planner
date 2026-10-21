@@ -38,8 +38,11 @@ on 2026-10-05 from blob `93cee0484834718088934c1217cb90b2102385f0`.
 all previously loaded catalogues. RA/DEC columns are detected automatically;
 ambiguous headers expose column mapping and the RA-unit fallback. Each import
 receives a stable session identity and a distinct default color. Different files
-can share a filename; importing identical parsed content again is skipped with a
-message, even if the file was renamed. Invalid uploads leave existing layers intact.
+can share a filename; importing identical parsed content already loaded is skipped
+with a message, even if the file was renamed or matches the official reference.
+If the official request completes after an identical local import, both sources are
+retained with an explicit duplicate warning; the imported copy can be removed in
+Map layers. Invalid uploads leave existing layers intact.
 
 In **More tools → Map layers → Data**, each catalogue shows its name, tile count,
 visibility checkbox and color control. Choose a color to update both its center

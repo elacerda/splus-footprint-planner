@@ -181,6 +181,14 @@ export default function App() {
     };
   }, [installOfficialCatalogue]);
 
+  useEffect(() => {
+    const reference = catalogues.find((dataset) => dataset.provenance === "official");
+    if (reference && catalogues.some((dataset) => dataset.provenance !== "official" && dataset.content_key === reference.content_key)) {
+      // Late automatic data must retain the import and make the duplicate explicit.
+      setNotice("Official catalogue matches an imported layer. Both sources are retained; remove the imported duplicate in Map layers if unintended.");
+    }
+  }, [catalogues]);
+
   useEffect(() => () => { planningAbortRef.current?.abort(); }, [regionPolygon, planningTiles, coverageStrategy]);
 
   useEffect(() => {
@@ -241,14 +249,14 @@ export default function App() {
     if (result.needs_mapping) return;
     setColumnMapping(null);
     const contentKey = catalogueContentKey(result);
-    if (catalogues.some((dataset) => dataset.provenance !== "official" && dataset.content_key === contentKey)) {
-      setNotice(`${result.filename} is already loaded; identical imported content was skipped.`);
+    if (catalogues.some((dataset) => dataset.content_key === contentKey)) {
+      setNotice(`${result.filename} is already loaded; identical catalogue content was skipped.`);
       return;
     }
     const id = crypto.randomUUID();
     invalidateCatalogueScience();
     setCatalogues((previous) => {
-      if (previous.some((dataset) => dataset.provenance !== "official" && dataset.content_key === contentKey)) return previous;
+      if (previous.some((dataset) => dataset.content_key === contentKey)) return previous;
       let index = 1; // Reserve the first palette color for the automatic reference.
       const usedColors = new Set(previous.map((dataset) => datasetDisplay[dataset.id]?.color ?? dataset.color));
       while (usedColors.has(datasetColor(index))) index += 1;

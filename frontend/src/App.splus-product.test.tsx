@@ -99,7 +99,7 @@ describe("S-PLUS product workflows", () => {
   it("adds independent catalogues, skips repeated content, and refreshes only the official reference", async () => {
     const user = userEvent.setup(); render(<App />); await loaded();
     const official = captured.map!.datasets[0];
-    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file(csv));
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file(csv.replace("SPLUS,A", "SPLUS,LOCAL")));
     await user.upload(screen.getByLabelText("Choose catalogue CSV"), file("RA,DEC,quality\n151,-31,good\n", "extension.csv"));
     expect(captured.map!.datasets).toHaveLength(3);
     const [reference, local, extension] = captured.map!.datasets;
@@ -109,8 +109,8 @@ describe("S-PLUS product workflows", () => {
     expect(new Set(captured.map!.tiles.map((tile) => tile.id)).size).toBe(3);
     expect(new Set(captured.map!.tiles.map((tile) => tile.group_id)).size).toBe(3);
     expect(extension.tiles[0].original_values).toEqual({ RA: "151", DEC: "-31", quality: "good" });
-    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file(csv, "renamed.csv"));
-    expect(screen.getByRole("status")).toHaveTextContent("identical imported content was skipped");
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file(csv.replace("SPLUS,A", "SPLUS,LOCAL"), "renamed.csv"));
+    expect(screen.getByRole("status")).toHaveTextContent("identical catalogue content was skipped");
     expect(captured.map!.datasets).toHaveLength(3);
     await user.click(screen.getByText("More tools", { exact: true }));
     expect(screen.queryByRole("button", { name: "Remove Official S-PLUS tiles" })).toBeNull();
@@ -134,6 +134,27 @@ describe("S-PLUS product workflows", () => {
       expect(captured.map!.datasets[0]).toMatchObject({ id: official.id, provenance: "official", color: "#45aaff", visible: false });
       expect(captured.map!.datasets[1]).toEqual(localStyled);
     }
+  });
+
+  it("skips a local copy of already loaded official content", async () => {
+    const user = userEvent.setup(); render(<App />); await loaded();
+    const reference = captured.map!.datasets[0];
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file(csv, "official-copy.csv"));
+    expect(captured.map!.datasets).toEqual([reference]);
+    expect(screen.getByRole("status")).toHaveTextContent("identical catalogue content was skipped");
+  });
+
+  it("explicitly warns when late official data match a previously imported catalogue", async () => {
+    let resolve!: (response: unknown) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((done) => { resolve = done; })));
+    const user = userEvent.setup(); render(<App />);
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file(csv));
+    const imported = captured.map!.datasets[0];
+    await act(async () => { resolve({ ok: true, text: async () => csv }); });
+    expect(captured.map!.datasets).toHaveLength(2);
+    expect(captured.map!.datasets[0].provenance).toBe("official");
+    expect(captured.map!.datasets[1]).toEqual(imported);
+    expect(screen.getByRole("status")).toHaveTextContent("Official catalogue matches an imported layer");
   });
 
   it("distinguishes different content with identical filenames and never grants official status by name", async () => {
