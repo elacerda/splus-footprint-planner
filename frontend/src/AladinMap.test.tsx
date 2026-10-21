@@ -1,7 +1,8 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AladinMap from "./AladinMap";
+import App from "./App";
 import A from "aladin-lite";
 import { profileRegistry, T80_SOUTH_INSTRUMENT_V2 } from "./profiles";
 import type { CatalogueDataset, TileRecord, TilingProfile } from "./types";
@@ -10,8 +11,8 @@ import { regionViewport } from "./region-viewport";
 
 const aladinMocks = vi.hoisted(() => {
   const handlers = new Map<string, (value: unknown) => void>();
-  const catalogues: Array<{ show: ReturnType<typeof vi.fn>; hide: ReturnType<typeof vi.fn>; addSources: ReturnType<typeof vi.fn>; removeAll: ReturnType<typeof vi.fn> }> = [];
-  const overlays: Array<{ add: ReturnType<typeof vi.fn>; removeAll: ReturnType<typeof vi.fn>; reportChange: ReturnType<typeof vi.fn>; shapes: unknown[]; painted: unknown[] }> = [];
+  const catalogues: Array<{ setColor: ReturnType<typeof vi.fn>; show: ReturnType<typeof vi.fn>; hide: ReturnType<typeof vi.fn>; addSources: ReturnType<typeof vi.fn>; removeAll: ReturnType<typeof vi.fn> }> = [];
+  const overlays: Array<{ setColor: ReturnType<typeof vi.fn>; add: ReturnType<typeof vi.fn>; removeAll: ReturnType<typeof vi.fn>; reportChange: ReturnType<typeof vi.fn>; shapes: unknown[]; painted: unknown[] }> = [];
   const instance = {
     on: vi.fn((event: string, handler: (value: unknown) => void) => handlers.set(event, handler)),
     off: vi.fn(), addCatalog: vi.fn(), addOverlay: vi.fn(), removeOverlay: vi.fn(), remove: vi.fn(),
@@ -26,14 +27,14 @@ vi.mock("aladin-lite", () => ({ default: {
   init: Promise.resolve(),
   aladin: vi.fn(() => aladinMocks.instance),
   catalog: vi.fn(() => {
-    const catalogue = { show: vi.fn(), hide: vi.fn(), addSources: vi.fn(), removeAll: vi.fn() };
+    const catalogue = { setColor: vi.fn(), show: vi.fn(), hide: vi.fn(), addSources: vi.fn(), removeAll: vi.fn() };
     aladinMocks.catalogues.push(catalogue);
     return catalogue;
   }),
   source: (ra: number, dec: number, data: Record<string, unknown>) => ({ ra, dec, data }),
-  graphicOverlay: () => {
+  graphicOverlay: vi.fn(() => {
     const overlay = {
-      shapes: [] as unknown[], painted: [] as unknown[],
+      setColor: vi.fn(), shapes: [] as unknown[], painted: [] as unknown[],
       add: vi.fn(), removeAll: vi.fn(), reportChange: vi.fn(),
     };
     overlay.add.mockImplementation((shape: unknown, redraw = true) => {
@@ -44,7 +45,7 @@ vi.mock("aladin-lite", () => ({ default: {
     overlay.reportChange.mockImplementation(() => { overlay.painted = [...overlay.shapes]; });
     aladinMocks.overlays.push(overlay);
     return overlay;
-  },
+  }),
   polyline: vi.fn((vertices: unknown) => vertices), circle: vi.fn(),
 } }));
 
@@ -138,6 +139,58 @@ describe("native Aladin catalogue layers", () => {
     expect(aladinMocks.catalogues[0].hide).not.toHaveBeenCalled();
     view.rerender(<AladinMap {...base} datasets={[first, second]} />);
     expect(aladinMocks.catalogues[1].show).toHaveBeenCalled();
+  });
+
+  it("updates React layer colors immediately for markers and real footprint boundaries", async () => {
+    aladinMocks.instance.getFoV.mockReturnValue([30, 20]);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: async () => "PID,NAME,RA,DEC,EPOC,STATUS\nSPLUS,A,150,-30,2000,0\n" }));
+    const user = userEvent.setup();
+    render(<App />);
+    await waitFor(() => expect(aladinMocks.catalogues).toHaveLength(1));
+    const upload = async (csv: string, name: string) => {
+      const file = new File([csv], name, { type: "text/csv" });
+      Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode(csv).buffer });
+      await user.upload(screen.getByLabelText("Choose catalogue CSV"), file);
+    };
+    await upload("RA,DEC\n150,-30\n", "high_latitude.csv");
+    await upload("RA,DEC\n151,-30\n", "extension.csv");
+    await waitFor(() => expect(aladinMocks.catalogues).toHaveLength(3));
+    const [official, highLatitude, extension] = aladinMocks.catalogues;
+    const footprint = aladinMocks.overlays[8];
+    expect(footprint.painted).toHaveLength(1);
+    const boundary = [...footprint.painted];
+    const nativeSources = highLatitude.addSources.mock.calls[0][0];
+    aladinMocks.instance.gotoRaDec.mockClear(); aladinMocks.instance.setFoV.mockClear();
+    await user.click(screen.getByText("More tools", { exact: true }));
+    fireEvent.change(screen.getByLabelText("Color for high_latitude.csv"), { target: { value: "#e36d24" } });
+    expect(highLatitude.setColor).toHaveBeenLastCalledWith("#e36d24");
+    expect(footprint.setColor).toHaveBeenLastCalledWith("#e36d24");
+    expect(footprint.painted).toEqual(boundary);
+    expect(highLatitude.addSources).toHaveBeenCalledTimes(1);
+    expect(highLatitude.addSources.mock.calls[0][0]).toBe(nativeSources);
+    expect(highLatitude.removeAll).not.toHaveBeenCalled();
+    expect(official.setColor).not.toHaveBeenCalled();
+    expect(extension.setColor).not.toHaveBeenCalled();
+    expect(aladinMocks.instance.gotoRaDec).not.toHaveBeenCalled();
+    expect(aladinMocks.instance.setFoV).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("checkbox", { name: "Show high_latitude.csv" }));
+    expect(highLatitude.hide).toHaveBeenCalled(); expect(footprint.painted).toHaveLength(0);
+    await user.click(screen.getByRole("checkbox", { name: "Show high_latitude.csv" }));
+    expect(highLatitude.show).toHaveBeenCalled(); expect(footprint.painted).toEqual(boundary);
+    await user.click(screen.getByRole("button", { name: "Remove extension.csv" }));
+    expect(extension.removeAll).toHaveBeenCalledOnce();
+    expect(aladinMocks.instance.removeOverlay).toHaveBeenCalledWith(extension);
+    expect(highLatitude.removeAll).not.toHaveBeenCalled();
+    const oldOfficialSource = official.addSources.mock.calls[0][0][0];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: async () => "PID,NAME,RA,DEC,EPOC,STATUS\nSPLUS,B,152,-31,2000,0\n" }));
+    await user.click(screen.getByRole("button", { name: "Reload official catalogue" }));
+    await waitFor(() => expect(official.addSources).toHaveBeenCalledTimes(2));
+    expect(official.removeAll).toHaveBeenCalledOnce();
+    expect(aladinMocks.catalogues).toHaveLength(3);
+    expect(highLatitude.addSources).toHaveBeenCalledTimes(1);
+    aladinMocks.handlers.get("objectClicked")?.(oldOfficialSource);
+    expect(screen.queryByText("Original catalogue tile · immutable")).toBeNull();
+    aladinMocks.instance.getFoV.mockReturnValue([100, 80]);
   });
 
   it("detaches removed imported catalogue and footprint without affecting remaining datasets", async () => {

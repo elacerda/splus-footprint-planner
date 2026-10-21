@@ -34,12 +34,32 @@ Snapshot provenance, including synchronization time and upstream blob SHA, lives
 in [provenance.json](frontend/src/data/official/provenance.json). It was synchronized
 on 2026-10-05 from blob `93cee0484834718088934c1217cb90b2102385f0`.
 
-**Load catalogue** accepts experimental or local S-PLUS CSV files. RA/DEC columns
-are detected automatically; ambiguous headers expose the existing column mapping
-and RA-unit fallback. Loading replaces the working catalogue, so manually loading
-the official file does not duplicate it. Accepted proposals remain available;
-pending plans and inference diagnostics are invalidated. **Reload official
-catalogue** replaces local data with a fresh canonical request (or its fallback).
+**Load catalogue** adds independent experimental or local S-PLUS CSV layers alongside
+all previously loaded catalogues. RA/DEC columns are detected automatically;
+ambiguous headers expose column mapping and the RA-unit fallback. Each import
+receives a stable session identity and a distinct default color. Different files
+can share a filename; importing identical parsed content again is skipped with a
+message, even if the file was renamed. Invalid uploads leave existing layers intact.
+
+In **More tools → Map layers → Data**, each catalogue shows its name, tile count,
+visibility checkbox and color control. Choose a color to update both its center
+markers and its T80-South footprint boundaries immediately. Hide or show any layer
+without losing its color, or remove an imported catalogue individually. The official
+catalogue has an **Official reference** indicator and cannot be removed individually;
+its visibility and color can be changed. Colors stay with each layer as others are
+added or removed.
+
+**Reload official catalogue** refreshes only the reference dataset from the canonical
+source (or bundled fallback), retaining imported layers and display settings. Imports
+during startup do not cancel the official request. Accepted proposals remain available
+when catalogues change; pending previews, coverage metrics and inference diagnostics
+are invalidated, and accepted-proposal coverage is recalculated as needed.
+
+All loaded catalogues contribute to scientific coverage and existing-grid inference,
+including layers hidden from the map. Visibility and color are display settings and
+do not change scientific participation or planning results. Importing tiles does not
+establish that those fields have been observed or scientifically completed. Catalogues
+and layer settings are held in browser memory for the current session only.
 
 ## Planning
 
@@ -60,7 +80,7 @@ catalogue** replaces local data with a fresh canonical request (or its fallback)
 6. **Download new_tiles.csv** exports only enabled accepted new tiles, in ICRS
    decimal degrees and epoch 2000. Source rows are never rewritten.
 
-Map layers include the working catalogue, proposed tiles, selected region,
+Map layers include every loaded catalogue, proposed tiles, selected region,
 inference anchors and candidate lattice. Visibility affects display only.
 **New plan** clears working catalogues, region, pointings and drafts after
 confirmation; **Reload official catalogue** remains available. Themes, map

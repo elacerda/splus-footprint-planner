@@ -6,13 +6,28 @@ const BASE_HUES = [188, 270, 115, 325, 215, 70, 155, 295];
 /** Assign a stable, distinguishable layer color by insertion order.
  *
  * @param index - Zero-based dataset position in the session.
- * @returns CSS HSL color. Additional layers continue around the hue wheel.
+ * @returns CSS hex color, also suitable for a native color input.
  */
 export function datasetColor(index: number): string {
   const hue = index < BASE_HUES.length
     ? BASE_HUES[index]
-    : (BASE_HUES[index % BASE_HUES.length] + 23 * Math.floor(index / BASE_HUES.length)) % 360;
-  return `hsl(${hue} 72% 43%)`;
+    : (188 + index * 137.50776405003785) % 360;
+  const channel = (offset: number) => {
+    const k = (offset + hue / 30) % 12;
+    return Math.round(255 * (0.43 - 0.3096 * Math.max(-1, Math.min(k - 3, 9 - k, 1))))
+      .toString(16).padStart(2, "0");
+  };
+  return `#${channel(0)}${channel(8)}${channel(4)}`;
+}
+
+/** Identify identical parsed content without filenames or session-scoped IDs.
+ * @param result - Validated CSV rows, ICRS coordinates in degrees and detected mapping.
+ * @returns Lossless signature including source fields and mapping; no hash collisions.
+ */
+export function catalogueContentKey(result: CatalogueResponse): string {
+  return JSON.stringify([result.ra_column, result.dec_column, result.tiles.map((tile) => [
+    tile.ra_deg, tile.dec_deg, tile.original_values, tile.metadata,
+  ])]);
 }
 
 /** Attach a stable layer identity and instrument association to every imported dataset.
@@ -42,6 +57,8 @@ export function createDataset(
   if (associatedInstrumentId) registry.resolveInstrumentProfile(associatedInstrumentId);
   return {
     id,
+    provenance: "imported",
+    content_key: catalogueContentKey(result),
     filename: result.filename,
     color: datasetColor(index),
     ra_column: result.ra_column ?? "RA",

@@ -1,5 +1,5 @@
 import { planningGeometryContext } from "./science/planning-operation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import splusLogo from "./assets/splus-logo.png";
 import AladinMap, { type MapMode } from "./AladinMap";
@@ -7,9 +7,9 @@ import { RegionAuthoring } from "./RegionAuthoring";
 import { ReferenceCoordinate } from "./ReferenceCoordinate";
 import { validatePolygon } from "./science/geometry";
 import { buildRegionPlanRequest, downloadCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
-import { createDataset } from "./datasets";
+import { catalogueContentKey, createDataset, datasetColor } from "./datasets";
 import { DEFAULT_PROFILE, profileRegistry, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "./profiles";
-import { loadOfficialCatalogue, OFFICIAL_CATALOGUE_NAME } from "./official-catalogue";
+import { loadOfficialCatalogue, OFFICIAL_DATASET_ID } from "./official-catalogue";
 import type { PointingGeometryContext } from "./science/pointing-geometry";
 import { CoverageUnavailableError } from "./science/coverage";
 import { CoverageReadout as MetricsPanel } from "./CoverageReadout";
@@ -61,11 +61,17 @@ export default function App() {
     try { return window.localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark"; }
     catch { return "dark"; }
   });
-  const [datasets, setDatasets] = useState<CatalogueDataset[]>([]);
-  const [catalogueSource, setCatalogueSource] = useState<"loading" | "upstream" | "fallback" | "manual" | "empty">("loading");
+  const [catalogues, setCatalogues] = useState<CatalogueDataset[]>([]);
+  // Presentation updates retain scientific row references and never cancel planning.
+  const [datasetDisplay, setDatasetDisplay] = useState<Record<string, { color?: string; visible?: boolean }>>({});
+  const datasets = useMemo(() => catalogues.map((dataset) => ({
+    ...dataset, ...datasetDisplay[dataset.id],
+  })), [catalogues, datasetDisplay]);
+  const [catalogueSource, setCatalogueSource] = useState<"loading" | "upstream" | "fallback" | "empty">("loading");
   const [fallbackWarning, setFallbackWarning] = useState(false);
   const catalogueAbortRef = useRef<AbortController | null>(null);
   const catalogueRevisionRef = useRef(0);
+  const uploadRevisionRef = useRef(0);
   const [columnMapping, setColumnMapping] = useState<ColumnMapping | null>(null);
   const [coverageStrategy, setCoverageStrategy] = useState<CoverageStrategy>("complete");
   const [proposals, setProposals] = useState<TileRecord[]>([]);
@@ -101,9 +107,9 @@ export default function App() {
   const proposalBatchRef = useRef(0);
   const regionRevisionRef = useRef(0);
   const selectedRegionRef = useRef<SkyPolygon | null>(null);
-  const originalTiles = useMemo(() => datasets.flatMap((dataset) => dataset.tiles.map((tile) => ({
+  const originalTiles = useMemo(() => catalogues.flatMap((dataset) => dataset.tiles.map((tile) => ({
     ...tile, instrument_profile_id: activeInstrument.id, inference_role: "auto" as const,
-  }))), [datasets, activeInstrument.id]);
+  }))), [catalogues, activeInstrument.id]);
   const planningOriginalTiles = originalTiles;
   const activeOutputProposals = proposals;
   const enabledProposals = useMemo(() => proposals.filter((tile) => tile.enabled !== false), [proposals]);
@@ -134,20 +140,46 @@ export default function App() {
 
   useEffect(() => setPreviewPage(0), [pending]);
 
+  /** Invalidate derived science on source changes while retaining accepted proposals. */
+  const invalidateCatalogueScience = useCallback(() => {
+    regionRevisionRef.current += 1;
+    planningAbortRef.current?.abort();
+    setPending(null); setProposalContext(null); setActiveMetrics(null);
+    setScientificRefusal(null); setSelectedTileId(null); setDebugRequestJson("");
+  }, []);
+
+  /** Refresh only the reference dataset, retaining its identity and display settings. */
+  const installOfficialCatalogue = useCallback((result: CatalogueResponse) => {
+    invalidateCatalogueScience();
+    const refreshed = { ...createDataset(result, 0, OFFICIAL_DATASET_ID, "t80-south"), provenance: "official" as const };
+    setCatalogues((previous) => {
+      const existing = previous.find((dataset) => dataset.provenance === "official");
+      return existing
+        ? previous.map((dataset) => dataset === existing ? { ...refreshed, color: dataset.color, visible: dataset.visible } : dataset)
+        : [refreshed, ...previous];
+    });
+    if (!selectedRegionRef.current) setFocusRequest((previous) => previous + 1);
+  }, [invalidateCatalogueScience]);
+
   useEffect(() => {
     const controller = new AbortController();
     const revision = ++catalogueRevisionRef.current;
     catalogueAbortRef.current = controller;
     void loadOfficialCatalogue(controller.signal).then(({ catalogue, source }) => {
       if (controller.signal.aborted || revision !== catalogueRevisionRef.current) return;
-      setDatasets([createDataset(catalogue, 0, crypto.randomUUID(), "t80-south")]);
-      if (!selectedRegionRef.current) setFocusRequest((previous) => previous + 1);
+      installOfficialCatalogue(catalogue);
       setCatalogueSource(source); setFallbackWarning(source === "fallback");
     }).catch((caught: unknown) => {
-      if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "Could not load official tiles.");
+      if (!controller.signal.aborted && revision === catalogueRevisionRef.current) {
+        setCatalogueSource("empty");
+        setError(caught instanceof Error ? caught.message : "Could not load official tiles.");
+      }
     });
-    return () => { catalogueAbortRef.current?.abort(); planningAbortRef.current?.abort(); };
-  }, []);
+    return () => {
+      catalogueAbortRef.current?.abort(); catalogueRevisionRef.current += 1;
+      uploadRevisionRef.current += 1; planningAbortRef.current?.abort();
+    };
+  }, [installOfficialCatalogue]);
 
   useEffect(() => () => { planningAbortRef.current?.abort(); }, [regionPolygon, planningTiles, coverageStrategy]);
 
@@ -204,21 +236,30 @@ export default function App() {
     }
   }
 
-  /** Replace the working catalogue atomically; alternate files never stack on official data. */
+  /** Append validated CSV content; repeated imports retain the original layer. */
   function applyCatalogue(result: CatalogueResponse) {
     if (result.needs_mapping) return;
-    regionRevisionRef.current += 1;
-    planningAbortRef.current?.abort();
     setColumnMapping(null);
-    setDatasets([createDataset(result, 0, crypto.randomUUID(), activeInstrument.id)]);
-    if (!regionPolygon) setFocusRequest((previous) => previous + 1);
-    setPending(null); setProposalContext(null); setActiveMetrics(null);
-    setScientificRefusal(null); setSelectedTileId(null); setDebugRequestJson("");
-    setNotice(`${result.row_count.toLocaleString()} catalogue rows loaded from ${result.filename}.`);
+    const contentKey = catalogueContentKey(result);
+    if (catalogues.some((dataset) => dataset.provenance !== "official" && dataset.content_key === contentKey)) {
+      setNotice(`${result.filename} is already loaded; identical imported content was skipped.`);
+      return;
+    }
+    const id = crypto.randomUUID();
+    invalidateCatalogueScience();
+    setCatalogues((previous) => {
+      if (previous.some((dataset) => dataset.provenance !== "official" && dataset.content_key === contentKey)) return previous;
+      let index = 1; // Reserve the first palette color for the automatic reference.
+      const usedColors = new Set(previous.map((dataset) => datasetDisplay[dataset.id]?.color ?? dataset.color));
+      while (usedColors.has(datasetColor(index))) index += 1;
+      return [...previous, createDataset(result, index, id, activeInstrument.id)];
+    });
+    if (!selectedRegionRef.current) setFocusRequest((previous) => previous + 1);
+    setNotice(`${result.row_count.toLocaleString()} catalogue rows added from ${result.filename}.`);
     setError(null);
   }
 
-  /** Fetch fresh official data; a revision guard prevents late startup responses replacing uploads. */
+  /** Fetch fresh reference rows without cancelling uploads or replacing imported data. */
   async function reloadOfficialCatalogue() {
     const revision = ++catalogueRevisionRef.current;
     catalogueAbortRef.current?.abort();
@@ -228,35 +269,52 @@ export default function App() {
     try {
       const result = await loadOfficialCatalogue(controller.signal);
       if (controller.signal.aborted || revision !== catalogueRevisionRef.current) return;
-      applyCatalogue(result.catalogue);
+      installOfficialCatalogue(result.catalogue);
       setCatalogueSource(result.source); setFallbackWarning(result.source === "fallback");
     } catch (caught) {
-      if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "Could not load the official catalogue.");
+      if (!controller.signal.aborted && revision === catalogueRevisionRef.current) {
+        setCatalogueSource("empty");
+        setError(caught instanceof Error ? caught.message : "Could not load the official catalogue.");
+      }
     }
   }
 
+  /** Remove one imported source and invalidate derived science; reference rows are protected. */
+  function removeDataset(id: string) {
+    const dataset = catalogues.find((item) => item.id === id);
+    if (!dataset || dataset.provenance === "official") return;
+    invalidateCatalogueScience();
+    setCatalogues((previous) => previous.filter((item) => item.id !== id));
+    setNotice(`${dataset.filename} removed.`);
+  }
+
+  /** Update map styling only, keeping source rows and scientific dependencies stable. */
+  function updateDatasetDisplay(id: string, display: { color?: string; visible?: boolean }) {
+    setDatasetDisplay((previous) => ({ ...previous, [id]: { ...previous[id], ...display } }));
+    setSelectedTileId(null);
+  }
+
+  /** Parse a local CSV using an independent lifecycle from the official request. */
   async function handleUpload(file?: File) {
     if (!file) return;
-    catalogueRevisionRef.current += 1;
-    catalogueAbortRef.current?.abort();
-    // Failed uploads must not leave a cancelled startup marked as still loading.
-    if (catalogueSource === "loading") setCatalogueSource(datasets.length
-      ? datasets[0].filename === OFFICIAL_CATALOGUE_NAME ? fallbackWarning ? "fallback" : "upstream" : "manual"
-      : "empty");
-    const revision = catalogueRevisionRef.current;
+    const revision = ++uploadRevisionRef.current;
+    setColumnMapping(null);
     await runBusy(() => uploadCatalogue(file), (result) => {
       if (result.needs_mapping) {
         setColumnMapping({ file, columns: result.columns ?? [], raColumn: "", decColumn: "", raUnit: "auto" });
         setNotice("Choose the RA and DEC columns for this catalogue.");
-      } else { applyCatalogue(result); setFallbackWarning(false); setCatalogueSource("manual"); }
-    }, () => revision === catalogueRevisionRef.current);
+      } else applyCatalogue(result);
+    }, () => revision === uploadRevisionRef.current);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
+
+  /** Apply the selected RA/DEC mapping without altering any existing catalogue. */
   async function applyColumnMapping() {
     if (!columnMapping || !columnMapping.raColumn || !columnMapping.decColumn) return;
+    const revision = ++uploadRevisionRef.current;
     await runBusy(
-      () => uploadCatalogue(columnMapping.file, columnMapping),
-      (result) => { applyCatalogue(result); setFallbackWarning(false); setCatalogueSource("manual"); },
+      () => uploadCatalogue(columnMapping.file, columnMapping), applyCatalogue,
+      () => revision === uploadRevisionRef.current,
     );
   }
 
@@ -391,7 +449,8 @@ export default function App() {
     proposalBatchRef.current = 0;
     catalogueRevisionRef.current += 1;
     catalogueAbortRef.current?.abort();
-    setDatasets([]); setCatalogueSource("empty"); setFallbackWarning(false);
+    uploadRevisionRef.current += 1;
+    setCatalogues([]); setDatasetDisplay({}); setCatalogueSource("empty"); setFallbackWarning(false);
     setColumnMapping(null);
     setProposals([]);
     setPending(null);
@@ -487,7 +546,7 @@ export default function App() {
         <div className="topbar-state">
           <span className="topbar-state-copy">
             <span className={`status-dot ${activeInstrument ? "is-ready" : ""}`} />
-            <span className="topbar-state-label">{catalogueSource === "loading" ? "Loading official S-PLUS tiles…" : datasets[0]?.filename ?? "Ready for a fresh plan"}</span>
+            <span className="topbar-state-label">{catalogueSource === "loading" ? "Loading official S-PLUS tiles…" : hasCatalogue ? `${datasets.length} catalogue${datasets.length === 1 ? "" : "s"} loaded` : "Ready for a fresh plan"}</span>
           </span>
           {hasCatalogue && <span className="topbar-count">{originalTiles.length.toLocaleString()} original tiles</span>}
         </div>
@@ -548,9 +607,7 @@ export default function App() {
               <span className="summary-number">{originalTiles.length.toLocaleString()}</span>
               <span className="summary-label">original tile centers</span>
             </div>
-            <p className="panel-copy">{datasets[0]?.filename === OFFICIAL_CATALOGUE_NAME
-              ? "Loaded from splus-collab/splus-utilities. All survey tiles contribute to coverage."
-              : "Load a local S-PLUS CSV to replace the working catalogue."}</p>
+            <p className="panel-copy">{datasets.length} catalogue{datasets.length === 1 ? "" : "s"} loaded. Add local S-PLUS CSVs as independent layers. All loaded catalogues contribute to coverage, including hidden layers.</p>
             <button className="button button-outline button-full" disabled={busy || catalogueSource === "loading"} onClick={() => void reloadOfficialCatalogue()}>Reload official catalogue</button>
             {fallbackWarning && <p className="fine-print" role="status">Using bundled official S-PLUS tiles because the current catalogue could not be reached. Planning remains available.</p>}
             {columnMapping && (
@@ -661,16 +718,20 @@ export default function App() {
                 <SectionHeading title="Map layers" />
                 <div className="layer-group-heading">Data</div>
                 {datasets.map((dataset) => (
-                  <div key={dataset.id}>
-                    <label className="dataset-layer">
-                      <input type="checkbox" aria-label={`Show ${dataset.filename}`} checked={dataset.visible} onChange={(event) => {
-                        setDatasets((previous) => previous.map((item) => item.id === dataset.id ? { ...item, visible: event.target.checked } : item));
-                        setSelectedTileId(null);
-                      }} />
-                      <span className="layer-swatch" style={{ "--swatch": dataset.color } as CSSProperties} />
-                      <span title={dataset.filename}>{dataset.filename}</span>
-                      <strong>{dataset.tiles.length.toLocaleString()}</strong>
+                  <div key={dataset.id} className="catalogue-layer">
+                    <input type="checkbox" id={`visible-${dataset.id}`} aria-label={`Show ${dataset.filename}`} checked={dataset.visible}
+                      onChange={(event) => updateDatasetDisplay(dataset.id, { visible: event.target.checked })} />
+                    <input className="catalogue-color" type="color" aria-label={`Color for ${dataset.filename}`}
+                      title={`Change color for ${dataset.filename}`} value={dataset.color}
+                      onChange={(event) => updateDatasetDisplay(dataset.id, { color: event.target.value })} />
+                    <label className="catalogue-layer-name" htmlFor={`visible-${dataset.id}`} title={dataset.filename}>
+                      {dataset.filename}
+                      {dataset.provenance === "official" && <small>Official reference</small>}
                     </label>
+                    <strong aria-label={`${dataset.tiles.length} tiles`}>{dataset.tiles.length.toLocaleString()}</strong>
+                    {dataset.provenance !== "official" && <button className="button button-quiet catalogue-remove"
+                      aria-label={`Remove ${dataset.filename}`} title={`Remove ${dataset.filename}`}
+                      onClick={() => removeDataset(dataset.id)}><Icon name="trash" /></button>}
                   </div>
                 ))}
                 <div className="layer-group-heading">Planning</div>

@@ -1,7 +1,8 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import * as api from "./api";
 import golden from "./data/golden.json";
 import plannerContract from "./data/planner-contract.json";
 import referenceCsv from "./science/fixtures/tiles_nc.csv?raw";
@@ -33,7 +34,7 @@ vi.mock("./AladinMap", () => ({ default: (props: MapProps) => {
 const csv = "PID,NAME,RA,DEC,EPOC,STATUS\nSPLUS,A,150,-30,2000,0\n";
 function file(contents: string, name = "local.csv") {
   const input = new File([contents], name, { type: "text/csv" });
-  Object.defineProperty(input, "arrayBuffer", { value: async () => new TextEncoder().encode(contents).buffer });
+  Object.defineProperty(input, "arrayBuffer", { configurable: true, value: async () => new TextEncoder().encode(contents).buffer });
   return input;
 }
 async function loaded() {
@@ -95,18 +96,114 @@ describe("S-PLUS product workflows", () => {
     expect(captured.map!.tiles.some((tile) => tile.source === "proposed")).toBe(true);
   }, 20000);
 
-  it("manual catalogues replace official data and reload restores the current official catalogue", async () => {
+  it("adds independent catalogues, skips repeated content, and refreshes only the official reference", async () => {
     const user = userEvent.setup(); render(<App />); await loaded();
+    const official = captured.map!.datasets[0];
     await user.upload(screen.getByLabelText("Choose catalogue CSV"), file(csv));
-    await waitFor(() => expect(captured.map!.datasets[0].filename).toBe("local.csv"));
-    expect(captured.map!.datasets).toHaveLength(1);
-    expect(captured.map!.datasets[0]).toMatchObject({ instrument_profile_id: "t80-south", inference_role: "auto" });
-    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file(csv));
-    expect(captured.map!.tiles).toHaveLength(1);
-    await user.click(screen.getByRole("button", { name: "Reload official catalogue" })); await loaded();
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(captured.map!.datasets[0].filename).toBe("Official S-PLUS tiles");
-    expect(captured.map!.tiles).toHaveLength(1);
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file("RA,DEC,quality\n151,-31,good\n", "extension.csv"));
+    expect(captured.map!.datasets).toHaveLength(3);
+    const [reference, local, extension] = captured.map!.datasets;
+    expect(reference).toEqual(official);
+    expect(new Set(captured.map!.datasets.map((dataset) => dataset.id)).size).toBe(3);
+    expect(new Set(captured.map!.datasets.map((dataset) => dataset.color)).size).toBe(3);
+    expect(new Set(captured.map!.tiles.map((tile) => tile.id)).size).toBe(3);
+    expect(new Set(captured.map!.tiles.map((tile) => tile.group_id)).size).toBe(3);
+    expect(extension.tiles[0].original_values).toEqual({ RA: "151", DEC: "-31", quality: "good" });
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file(csv, "renamed.csv"));
+    expect(screen.getByRole("status")).toHaveTextContent("identical imported content was skipped");
+    expect(captured.map!.datasets).toHaveLength(3);
+    await user.click(screen.getByText("More tools", { exact: true }));
+    expect(screen.queryByRole("button", { name: "Remove Official S-PLUS tiles" })).toBeNull();
+    await user.click(screen.getByRole("checkbox", { name: "Show local.csv" }));
+    expect(captured.map!.datasets[1]).toMatchObject({ visible: false, color: local.color });
+    expect(captured.map!.tiles).toHaveLength(2);
+    expect(captured.map!.datasets[0].visible).toBe(true);
+    await user.click(screen.getByRole("checkbox", { name: "Show local.csv" }));
+    fireEvent.change(screen.getByLabelText("Color for local.csv"), { target: { value: "#d44890" } });
+    fireEvent.change(screen.getByLabelText("Color for Official S-PLUS tiles"), { target: { value: "#45aaff" } });
+    await user.click(screen.getByRole("checkbox", { name: "Show Official S-PLUS tiles" }));
+    const localStyled = captured.map!.datasets[1];
+    expect(localStyled).toMatchObject({ visible: true, color: "#d44890" });
+    await user.click(screen.getByRole("button", { name: "Remove extension.csv" }));
+    expect(captured.map!.datasets).toHaveLength(2);
+    expect(captured.map!.datasets[1]).toEqual(localStyled);
+    for (let reload = 0; reload < 2; reload += 1) {
+      await user.click(screen.getByRole("button", { name: "Reload official catalogue" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Reload official catalogue" })).toBeEnabled());
+      expect(captured.map!.datasets).toHaveLength(2);
+      expect(captured.map!.datasets[0]).toMatchObject({ id: official.id, provenance: "official", color: "#45aaff", visible: false });
+      expect(captured.map!.datasets[1]).toEqual(localStyled);
+    }
+  });
+
+  it("distinguishes different content with identical filenames and never grants official status by name", async () => {
+    const user = userEvent.setup(); render(<App />); await loaded();
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file("RA,DEC\n151,-31\n"));
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file("RA,DEC\n152,-32\n"));
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file("RA,DEC\n153,-33\n", "Official S-PLUS tiles.csv"));
+    expect(captured.map!.datasets).toHaveLength(4);
+    expect(new Set(captured.map!.datasets.map((dataset) => dataset.id)).size).toBe(4);
+    expect(captured.map!.datasets.slice(1).every((dataset) => dataset.provenance === "imported")).toBe(true);
+    await user.click(screen.getByText("More tools", { exact: true }));
+    expect(screen.getByRole("button", { name: "Remove Official S-PLUS tiles.csv" })).toBeEnabled();
+    const [official, first, second] = captured.map!.datasets;
+    await user.click(screen.getAllByRole("button", { name: "Remove local.csv" })[0]);
+    expect(captured.map!.datasets.slice(0, 2)).toEqual([official, second]);
+    expect(captured.map!.tiles.some((tile) => tile.dataset_id === first.id)).toBe(false);
+  });
+
+  it("uses every loaded catalogue in coverage even when all source layers are hidden", async () => {
+    const user = userEvent.setup(); render(<App />); await loaded();
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file("RA,DEC\n150.1,-30\n", "high_latitude.csv"));
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file("RA,DEC\n150.2,-30\n", "extension.csv"));
+    await user.click(screen.getByText("More tools", { exact: true }));
+    for (const dataset of captured.map!.datasets) await user.click(screen.getByRole("checkbox", { name: `Show ${dataset.filename}` }));
+    expect(captured.map!.tiles).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Covered region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await screen.findByRole("heading", { name: "Proposal preview" });
+    expect(screen.getByText("Existing contributors").parentElement).toHaveTextContent("3");
+    expect(screen.getByText("Already covered").parentElement).toHaveTextContent("100.0%");
+    const preview = screen.getByRole("heading", { name: "Proposal preview" });
+    await user.click(screen.getByRole("checkbox", { name: "Show high_latitude.csv" }));
+    fireEvent.change(screen.getByLabelText("Color for extension.csv"), { target: { value: "#e6419c" } });
+    expect(preview).toBeInTheDocument();
+    expect(screen.getByText("Existing contributors").parentElement).toHaveTextContent("3");
+    expect(screen.getByText("Already covered").parentElement).toHaveTextContent("100.0%");
+    await user.click(screen.getByRole("button", { name: "Remove extension.csv" }));
+    expect(screen.queryByRole("heading", { name: "Proposal preview" })).toBeNull();
+  });
+
+  it("retains accepted proposals and export, and avoids science recomputation for display changes", async () => {
+    const coverage = vi.spyOn(api, "measureCoverage");
+    const download = vi.spyOn(api, "downloadCatalogue").mockResolvedValue(undefined);
+    const user = userEvent.setup(); render(<App />); await loaded();
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file("RA,DEC\n151,-31\n"));
+    await user.click(screen.getByRole("button", { name: "Covered region" }));
+    await user.click(screen.getByText("More tools", { exact: true }));
+    await user.click(screen.getByRole("button", { name: "Single tile" }));
+    await user.click(screen.getByRole("button", { name: "Place sky center" }));
+    await user.click(await screen.findByRole("button", { name: "Accept proposal" }));
+    await waitFor(() => expect(coverage).toHaveBeenCalled());
+    const accepted = captured.map!.tiles.filter((tile) => tile.source === "proposed");
+    const calls = coverage.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "Download new_tiles.csv" }));
+    const exportBefore = download.mock.calls.at(-1);
+    for (const name of ["local.csv", "Official S-PLUS tiles"]) {
+      await user.click(screen.getByRole("checkbox", { name: `Show ${name}` }));
+      fireEvent.change(screen.getByLabelText(`Color for ${name}`), { target: { value: "#b83ad5" } });
+    }
+    expect(coverage).toHaveBeenCalledTimes(calls);
+    expect(captured.map!.tiles.filter((tile) => tile.source === "proposed")).toEqual(accepted);
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file("RA,DEC\n153,-32\n", "extension.csv"));
+    await waitFor(() => expect(coverage.mock.calls.length).toBeGreaterThan(calls));
+    expect(coverage.mock.calls.at(-1)![1]).toHaveLength(3);
+    await user.click(screen.getByRole("button", { name: "Remove extension.csv" }));
+    await user.click(screen.getByRole("button", { name: "Reload official catalogue" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reload official catalogue" })).toBeEnabled());
+    expect(captured.map!.tiles.filter((tile) => tile.source === "proposed")).toEqual(accepted);
+    await user.click(screen.getByRole("button", { name: "Download new_tiles.csv" }));
+    expect(download.mock.calls.at(-1)).toEqual(exportBefore);
   });
 
   it("maps local coordinate columns without exposing instrument configuration", async () => {
@@ -115,8 +212,8 @@ describe("S-PLUS product workflows", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "RA column" }), "east");
     await user.selectOptions(screen.getByRole("combobox", { name: "DEC column" }), "north");
     await user.click(screen.getByRole("button", { name: "Load mapped catalogue" }));
-    await waitFor(() => expect(captured.map!.tiles[0].ra_deg).toBe(151));
-    expect(captured.map!.datasets[0].instrument_profile_id).toBe("t80-south");
+    await waitFor(() => expect(captured.map!.datasets[1].tiles[0].ra_deg).toBe(151));
+    expect(captured.map!.datasets[1].instrument_profile_id).toBe("t80-south");
   });
 
   it("starts fresh and can reload official tiles", async () => {
@@ -170,24 +267,75 @@ describe("S-PLUS product workflows", () => {
     expect(screen.queryByRole("combobox", { name: /instrument|profile|inference|epoch/i })).toBeNull();
   });
 
-  it("ignores late startup data after a manual file replaces the working catalogue", async () => {
+  it("retains imports when official startup completes late", async () => {
     let resolve!: (response: unknown) => void;
     vi.stubGlobal("fetch", vi.fn(() => new Promise((done) => { resolve = done; })));
     const user = userEvent.setup(); render(<App />);
     await user.upload(screen.getByLabelText("Choose catalogue CSV"), file("RA,DEC\n151,-31\n"));
     await act(async () => { resolve({ ok: true, text: async () => csv }); });
-    expect(captured.map!.datasets[0].filename).toBe("local.csv");
-    expect(captured.map!.tiles[0].ra_deg).toBe(151);
+    expect(captured.map!.datasets.map((dataset) => dataset.filename)).toEqual(["Official S-PLUS tiles", "local.csv"]);
+    expect(captured.map!.datasets[1].tiles[0].ra_deg).toBe(151);
   });
-  it("keeps official reload available after an invalid upload cancels pending startup", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+  it("appends a slow upload even when official startup finishes during parsing", async () => {
+    let resolveOfficial!: (response: unknown) => void;
+    let resolveUpload!: (bytes: ArrayBuffer) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((done) => { resolveOfficial = done; })));
+    const input = file("RA,DEC\n151,-31\n");
+    Object.defineProperty(input, "arrayBuffer", { configurable: true, value: () => new Promise<ArrayBuffer>((done) => { resolveUpload = done; }) });
+    const user = userEvent.setup(); render(<App />);
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), input);
+    await act(async () => { resolveOfficial({ ok: true, text: async () => csv }); });
+    expect(captured.map!.datasets).toHaveLength(1);
+    await act(async () => { resolveUpload(new TextEncoder().encode("RA,DEC\n151,-31\n").buffer); });
+    expect(captured.map!.datasets.map((dataset) => dataset.filename)).toEqual(["Official S-PLUS tiles", "local.csv"]);
+  });
+
+  it("retains imports added while an official reload is pending", async () => {
+    const user = userEvent.setup(); render(<App />); await loaded();
+    const official = captured.map!.datasets[0];
+    let resolve!: (response: unknown) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((done) => { resolve = done; })));
+    await user.click(screen.getByRole("button", { name: "Reload official catalogue" }));
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file("RA,DEC\n151,-31\n"));
+    const imported = captured.map!.datasets[1];
+    await act(async () => { resolve({ ok: true, text: async () => csv.replace("150,-30", "154,-32") }); });
+    expect(captured.map!.datasets).toHaveLength(2);
+    expect(captured.map!.datasets[0]).toMatchObject({ id: official.id, color: official.color, provenance: "official" });
+    expect(captured.map!.datasets[0].tiles[0].ra_deg).toBe(154);
+    expect(captured.map!.datasets[1]).toEqual(imported);
+  });
+
+  it("preserves existing datasets on invalid coordinates and malformed CSV", async () => {
+    const user = userEvent.setup(); render(<App />); await loaded();
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file("RA,DEC\n151,-31\n"));
+    const previous = captured.map!.datasets;
+    for (const invalid of ['RA,DEC\n"broken', "RA,DEC\n151,100\n"]) {
+      await user.upload(screen.getByLabelText("Choose catalogue CSV"), file(invalid));
+      await screen.findByRole("alert");
+      expect(captured.map!.datasets).toEqual(previous);
+    }
+  });
+
+  it("does not cancel official startup when an upload fails", async () => {
+    let resolve!: (response: unknown) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((done) => { resolve = done; })));
     const user = userEvent.setup(); render(<App />);
     await user.upload(screen.getByLabelText("Choose catalogue CSV"), file('RA,DEC\n"broken'));
     await screen.findByRole("alert");
-    expect(screen.getByRole("button", { name: "Reload official catalogue" })).toBeEnabled();
+    await act(async () => { resolve({ ok: true, text: async () => csv }); }); await loaded();
+    expect(captured.map!.datasets[0].filename).toBe("Official S-PLUS tiles");
+  });
+
+  it("rejects stale startup after New plan, including when a new official reload finishes first", async () => {
+    let resolve!: (response: unknown) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((done) => { resolve = done; })));
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByRole("button", { name: "New plan" }));
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: async () => csv }));
     await user.click(screen.getByRole("button", { name: "Reload official catalogue" })); await loaded();
-    expect(captured.map!.datasets[0].filename).toBe("Official S-PLUS tiles");
+    const current = captured.map!.datasets;
+    await act(async () => { resolve({ ok: true, text: async () => csv.replace("150,-30", "20,10") }); });
+    expect(captured.map!.datasets).toEqual(current);
   });
 
   it("keeps selected-region viewport priority when startup catalogue data arrive late", async () => {

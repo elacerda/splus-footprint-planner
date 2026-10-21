@@ -67,6 +67,7 @@ export default function AladinMap(props: AladinMapProps) {
   const propsRef = useRef(props);
   const cataloguesRef = useRef<Map<string, AladinLiteCatalogue>>(new Map());
   const datasetFootprintsRef = useRef<Map<string, AladinLiteOverlay>>(new Map());
+  const datasetStateRef = useRef<Map<string, { tiles: TileRecord[]; color: string }>>(new Map());
   const datasetSourcesRef = useRef<Map<string, AladinLiteSource[]>>(new Map());
   const proposalCatalogueRef = useRef<AladinLiteCatalogue | null>(null);
   const referenceCatalogueRef = useRef<AladinLiteCatalogue | null>(null);
@@ -120,7 +121,7 @@ export default function AladinMap(props: AladinMapProps) {
         resizeObserver = new ResizeObserver(() => redrawRef.current());
         resizeObserver.observe(containerRef.current);
         rebuildOverlays(instance, overlaysRef);
-        syncCatalogues(instance, propsRef.current.datasets, propsRef.current.tiles, propsRef.current.planningLayers.proposals, cataloguesRef.current, datasetFootprintsRef.current, datasetSourcesRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
+        syncCatalogues(instance, propsRef.current.datasets, propsRef.current.tiles, propsRef.current.planningLayers.proposals, cataloguesRef.current, datasetFootprintsRef.current, datasetSourcesRef.current, datasetStateRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
         redrawRef.current();
         if (propsRef.current.regionFocusRequest > 0 && propsRef.current.selectedPolygon) {
           focusOnRegion(instance, propsRef.current.selectedPolygon);
@@ -162,7 +163,7 @@ export default function AladinMap(props: AladinMapProps) {
   useEffect(() => {
     const instance = aladinRef.current;
     if (!instance) return;
-    syncCatalogues(instance, props.datasets, props.tiles, props.planningLayers.proposals, cataloguesRef.current, datasetFootprintsRef.current, datasetSourcesRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
+    syncCatalogues(instance, props.datasets, props.tiles, props.planningLayers.proposals, cataloguesRef.current, datasetFootprintsRef.current, datasetSourcesRef.current, datasetStateRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
     redrawRef.current();
   }, [props.tiles, props.datasets, props.planningLayers.proposals]);
 
@@ -336,6 +337,8 @@ export default function AladinMap(props: AladinMapProps) {
         });
       }
     }
+    // Hidden, empty and offscreen datasets also need to erase their last paint.
+    for (const layer of datasetFootprintsRef.current.values()) layer.reportChange();
     if (drawFootprints) {
       if (current.planningLayers.proposals) {
         proposals.filter((tile) => tile.enabled !== false && visible(tile)).slice(0, 500).forEach((tile) => {
@@ -393,7 +396,7 @@ export default function AladinMap(props: AladinMapProps) {
   );
 }
 
-/** Synchronize native Aladin catalogues without recreating imported layers.
+/** Synchronize native Aladin layers, refreshing only changed source rows or colors.
  *
  * @param instance - Live Aladin viewport.
  * @param datasets - Imported layers with visibility and display colors.
@@ -402,6 +405,7 @@ export default function AladinMap(props: AladinMapProps) {
  * @param catalogues - Persistent imported catalogue handles by dataset ID.
  * @param footprints - Persistent detailed-footprint overlays by dataset ID.
  * @param datasetSources - Native imported sources by dataset ID, used to invalidate click lookups.
+ * @param datasetState - Last synchronized immutable rows and color for each layer.
  * @param proposalRef - Native proposal catalogue handle.
  * @param disabledRef - Native cross-marker catalogue for inactive proposals.
  * @param lookup - Native source to full application pointing index.
@@ -414,6 +418,7 @@ function syncCatalogues(
   catalogues: Map<string, AladinLiteCatalogue>,
   footprints: Map<string, AladinLiteOverlay>,
   datasetSources: Map<string, AladinLiteSource[]>,
+  datasetState: Map<string, { tiles: TileRecord[]; color: string }>,
   proposalRef: { current: AladinLiteCatalogue | null },
   disabledRef: { current: AladinLiteCatalogue | null },
   lookup: WeakMap<AladinLiteSource, TileRecord>,
@@ -426,6 +431,7 @@ function syncCatalogues(
     instance.removeOverlay(catalogue);
     catalogues.delete(id);
     datasetSources.delete(id);
+    datasetState.delete(id);
     const footprint = footprints.get(id);
     if (footprint) {
       footprint.removeAll();
@@ -444,6 +450,20 @@ function syncCatalogues(
         shape: "circle",
         displayLabel: false,
       });
+      instance.addCatalog(catalogue);
+      catalogues.set(dataset.id, catalogue);
+      const overlay = A.graphicOverlay({ name: `${dataset.filename} footprints`, color: dataset.color, lineWidth: 1 });
+      instance.addOverlay(overlay);
+      footprints.set(dataset.id, overlay);
+    }
+    const previous = datasetState.get(dataset.id);
+    if (previous && previous.color !== dataset.color) {
+      catalogue.setColor(dataset.color);
+      footprints.get(dataset.id)?.setColor(dataset.color);
+    }
+    if (previous?.tiles !== dataset.tiles) {
+      for (const source of datasetSources.get(dataset.id) ?? []) lookup.delete(source);
+      if (previous) catalogue.removeAll();
       const sources = dataset.tiles.map((tile) => {
         const source = A.source(tile.ra_deg, tile.dec_deg, {
           ...tile.metadata,
@@ -456,12 +476,8 @@ function syncCatalogues(
       });
       catalogue.addSources(sources);
       datasetSources.set(dataset.id, sources);
-      instance.addCatalog(catalogue);
-      catalogues.set(dataset.id, catalogue);
-      const overlay = A.graphicOverlay({ name: `${dataset.filename} footprints`, color: dataset.color, lineWidth: 1 });
-      instance.addOverlay(overlay);
-      footprints.set(dataset.id, overlay);
     }
+    datasetState.set(dataset.id, { tiles: dataset.tiles, color: dataset.color });
     if (dataset.visible) catalogue.show();
     else catalogue.hide();
   }

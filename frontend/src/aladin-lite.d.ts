@@ -9,6 +9,8 @@ declare module "aladin-lite" {
 
   /** Catalog overlay that renders coordinate-center markers. */
   export interface AladinLiteCatalogue {
+    /** Repaint markers in the selected CSS color using Aladin Lite 3.8.2. */
+    setColor(color: string): void;
     addSources(sources: AladinLiteSource[]): void;
     removeAll(): void;
     /** Toggle native catalogue rendering without deleting source data. */
@@ -19,6 +21,8 @@ declare module "aladin-lite" {
 
   /** Graphic overlay for ICRS tile outlines and lattice positions. */
   export interface AladinLiteOverlay {
+    /** Repaint footprint boundaries in the selected CSS color. */
+    setColor(color: string): void;
     /** Append a shape; false batches repaint until reportChange is called. */
     add(shape: unknown, redraw?: boolean): void;
     removeAll(): void;

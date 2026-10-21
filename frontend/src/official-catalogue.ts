@@ -6,6 +6,8 @@ import type { CatalogueResponse } from "./types";
 /** Canonical current catalogue; the synchronized snapshot is only a fallback. */
 export const OFFICIAL_CATALOGUE_URL = "https://raw.githubusercontent.com/splus-collab/splus-utilities/main/plot-footprint/tiles_nc.csv";
 export const OFFICIAL_CATALOGUE_NAME = "Official S-PLUS tiles";
+/** Reserved session identity, independent of the upstream filename or request. */
+export const OFFICIAL_DATASET_ID = "splus-official-reference";
 export const OFFICIAL_CATALOGUE_PROVENANCE = provenance;
 
 /** Validate official UTF-8 CSV with the inherited ICRS parser and all STATUS values.

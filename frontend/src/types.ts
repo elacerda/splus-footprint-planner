@@ -99,6 +99,10 @@ export interface CatalogueResponse {
 /** One independent uploaded CSV layer retained in the browser session. */
 export interface CatalogueDataset {
   id: string;
+  /** Explicit reference provenance; filenames never grant official status. */
+  provenance?: "official" | "imported";
+  /** Lossless parsed-content identity, independent of filename and session IDs. */
+  content_key?: string;
   filename: string;
   color: string;
   ra_column: string;

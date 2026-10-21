@@ -1,5 +1,5 @@
 import { measureResolvedCoverage } from "./science/test-support/resolved-coverage";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -77,6 +77,8 @@ describe("Gate 8 real App workflow matrix", () => {
     const subset = [referenceRows[0], ...referenceRows.slice(1).filter((row) => names.has(row[1]))].map((row) => row.join(",")).join("\n");
     session.region = fixture.polygon;
     const user = userEvent.setup(); render(<App />);
+    // Isolate the frozen uploaded subset from the automatic official reference.
+    fireEvent.click(screen.getByRole("button", { name: "New plan" }));
     await user.upload(screen.getByLabelText("Choose catalogue CSV"), inputFile(subset, "tiles_nc.csv"));
     await waitFor(() => expect(session.map!.datasets[0]?.instrument_profile_id).toBe("t80-south"));
     const sources = structuredClone(session.map!.tiles);

@@ -166,6 +166,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .dataset-layer input { margin: 0; accent-color: #087f89; }
 .dataset-layer > span:nth-of-type(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dataset-layer strong { color: var(--muted); font: 11px var(--mono); }
+.catalogue-layer { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; min-height: 44px; color: var(--ink-soft); font-size: var(--type-meta); }
+.catalogue-layer > input[type="checkbox"] { flex: 0 0 auto; margin: 0; accent-color: #087f89; }
+.catalogue-color { flex: 0 0 28px; width: 28px; height: 30px; padding: 2px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--panel); cursor: pointer; }
+.catalogue-layer-name { flex: 1; min-width: 0; overflow-wrap: anywhere; cursor: pointer; }
+.catalogue-layer-name small { display: block; color: var(--muted); font-size: var(--type-meta); }
+.catalogue-layer > strong { color: var(--muted); font: 11px var(--mono); }
+.catalogue-remove { flex: 0 0 30px; min-height: 32px; padding: 5px; }
 .mode-stack { display: grid; gap: 6px; }
 .mode-button { min-height: 52px; display: flex; align-items: center; gap: 10px; text-align: left; padding: 7px 8px; border: 1px solid #d5dfe1; border-radius: 5px; background: #fbfcfc; cursor: pointer; }
 .mode-button:disabled { opacity: .45; cursor: not-allowed; }

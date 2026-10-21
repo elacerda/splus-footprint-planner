@@ -37,8 +37,12 @@ region selection, Complete/Efficient planning, proposal review and
 navigation support choosing the target field. Single tile placement and pasted
 RA/DEC centers also pass through proposal review and acceptance.
 
-Local CSV catalogues replace the working catalogue; reloading restores the
-canonical official data. Network failure uses the bundled official snapshot with
+Local CSV catalogues append independent layers with stable identities and colors.
+Map layers provide visibility, color editing and individual removal for imports.
+The official reference is protected from individual removal; reloading refreshes
+only that dataset and retains imported layers. Hidden catalogues still contribute
+to scientific coverage and inference. Repeated imported content is skipped with a
+message. Network failure uses the bundled official snapshot with
 a nonblocking warning. Aladin Lite supplies sky navigation and imagery; a fully
 offline sky image renderer is not supplied.
 
