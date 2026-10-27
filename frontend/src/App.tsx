@@ -205,6 +205,27 @@ export default function App() {
       });
     return () => controller.abort();
   }, [regionPolygon, planningOriginalTiles, activeOutputProposals, activeSurvey.id, activePointingGeometryContext]);
+
+  useEffect(() => {
+    if (!pending || !regionPolygon || !pending.coverageStrategy || pending.metrics) return;
+    const controller = new AbortController();
+    const previewTiles = pending.tiles;
+    void measureCoverage(regionPolygon, planningTiles, previewTiles, activeSurvey.id,
+      undefined, activePointingGeometryContext, controller.signal)
+      .then((metrics) => {
+        if (controller.signal.aborted) return;
+        setPending((current) => current?.tiles === previewTiles ? { ...current, metrics } : current);
+      })
+      .catch((caught: unknown) => {
+        if (controller.signal.aborted) return;
+        if (caught instanceof CoverageUnavailableError) {
+          setPending((current) => current?.tiles === previewTiles ? { ...current, metrics: caught.result } : current);
+        } else {
+          setError(caught instanceof Error ? caught.message : "Could not update preview coverage.");
+        }
+      });
+    return () => controller.abort();
+  }, [pending, planningTiles, regionPolygon, activeSurvey.id, activePointingGeometryContext]);
   useEffect(() => {
     if (confirmingNewProject) cancelNewProjectRef.current?.focus();
   }, [confirmingNewProject]);
@@ -431,6 +452,23 @@ export default function App() {
     setProposals((previous) => previous.map((tile) => tile.id === id
       ? { ...tile, enabled: tile.enabled === false }
       : tile));
+  }
+
+  function removeProposal(id: string) {
+    if (pending?.tiles.some((tile) => tile.id === id)) {
+      setPending((current) => current?.tiles.some((tile) => tile.id === id)
+        ? { ...current, tiles: current.tiles.filter((tile) => tile.id !== id), metrics: current.coverageStrategy ? null : current.metrics }
+        : current);
+    } else if (proposals.some((tile) => tile.id === id)) {
+      setProposals((previous) => previous.filter((tile) => tile.id !== id));
+      setPending((current) => current?.coverageStrategy ? { ...current, metrics: null } : current);
+    } else {
+      return;
+    }
+    setSelectedTileId(null);
+    setActiveMetrics(null);
+    setScientificRefusal(null);
+    setNotice("Tile removed from proposal.");
   }
 
   function clearProposals() {
@@ -823,6 +861,10 @@ export default function App() {
                 onToggle={proposals.some((tile) => tile.id === selectedTile.id)
                   ? () => toggleProposal(selectedTile.id)
                   : undefined}
+                onRemove={selectedTile.source === "proposed" && (pending?.tiles.some((tile) => tile.id === selectedTile.id)
+                  || proposals.some((tile) => tile.id === selectedTile.id))
+                  ? () => removeProposal(selectedTile.id)
+                  : undefined}
               />
             ) : (
               <div className="inspector-empty">
@@ -845,7 +887,9 @@ export default function App() {
                 ? "No local grid could be inferred from the loaded tiles, so the S-PLUS grid supplies the plan."
                 : "No catalogue is loaded; the S-PLUS grid supplies the plan."}</p>}
               {pending.coverageStrategy && <p className="strategy-result">{pending.coverageStrategy === "complete" ? "Complete coverage" : "Efficient coverage"}</p>}
-              {pending.metrics ? <MetricsPanel metrics={pending.metrics} inference={pending.inference} candidateCount={pending.candidateCenters.length} /> : <div className="preview-count"><strong>{pending.tiles.length}</strong><span>new centers ready</span></div>}
+              {pending.metrics ? <MetricsPanel metrics={pending.metrics} inference={pending.inference} candidateCount={pending.candidateCenters.length} /> : pending.coverageStrategy
+                ? <p className="panel-copy" role="status">Coverage metrics are unavailable after this proposal changed.</p>
+                : <div className="preview-count"><strong>{pending.tiles.length}</strong><span>new centers ready</span></div>}
               {pending.diagnostics.map((line) => <p className="diagnostic-line" key={line}>{line}</p>)}
               {anchors.length > 0 && (
                 <details className="anchor-list">
@@ -940,7 +984,7 @@ function PlanningLayer({ label, color, checked, count, onChange }: {
   </label>;
 }
 
-function TileDetails({ tile, onToggle }: { tile: TileRecord; onToggle?: () => void; context: PointingGeometryContext; fallbackInstrument: AnyInstrumentProfile | null }) {
+function TileDetails({ tile, onToggle, onRemove }: { tile: TileRecord; onToggle?: () => void; onRemove?: () => void; context: PointingGeometryContext; fallbackInstrument: AnyInstrumentProfile | null }) {
   const metadata = Object.entries(tile.metadata).filter(([, value]) => value !== "");
   return (
     <div className="tile-detail-content">
@@ -955,7 +999,10 @@ function TileDetails({ tile, onToggle }: { tile: TileRecord; onToggle?: () => vo
       </div>
       <div className="decimal-coordinate">ICRS · {formatRa(tile.ra_deg)}, {formatDec(tile.dec_deg)}</div>
       <div className={`source-banner ${tile.source}`}><span className="status-dot" />{tile.source === "original" ? "Original catalogue tile · immutable" : `Proposed · ${tile.enabled === false ? "disabled" : "enabled"}`}</div>
-      {onToggle && <button className="button button-outline button-full" onClick={onToggle}>{tile.enabled === false ? "Enable tile" : "Disable tile"}</button>}
+      {(onToggle || onRemove) && <div className="tile-detail-actions">
+        {onToggle && <button className="button button-outline button-full" type="button" onClick={onToggle}>{tile.enabled === false ? "Enable tile" : "Disable tile"}</button>}
+        {onRemove && <button className="button button-danger button-full" type="button" onClick={onRemove}><Icon name="trash" />Remove tile</button>}
+      </div>}
     </div>
   );
 }

@@ -319,6 +319,7 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 .source-banner { display: flex; align-items: center; gap: 7px; padding: 7px 8px; color: #557075; background: #edf3f3; border-radius: 3px; font-size: 11px; }
 .source-banner.original .status-dot { background: var(--cyan); }
 .source-banner.proposed .status-dot { background: var(--orange); }
+.tile-detail-actions { display: grid; gap: 6px; }
 
 .proposal-section { background: #f8fafa; }
 .solution-stamp { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; color: #426147; font-size: var(--type-meta); }

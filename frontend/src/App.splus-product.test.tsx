@@ -11,9 +11,10 @@ import { OFFICIAL_CATALOGUE_URL } from "./official-catalogue";
 import type { CatalogueDataset, SkyPolygon, TileRecord } from "./types";
 
 interface MapProps {
-  datasets: CatalogueDataset[]; tiles: TileRecord[]; selectedPolygon: SkyPolygon | null;
+  datasets: CatalogueDataset[]; tiles: TileRecord[]; selectedPolygon: SkyPolygon | null; selectedTileId: string | null;
   focusRequest: number; regionFocusRequest: number;
   onRegionSelect: (polygon: SkyPolygon) => void; onSkyClick: (ra: number, dec: number) => void;
+  onTileSelect: (tile: TileRecord) => void;
 }
 const captured = vi.hoisted(() => ({ map: null as MapProps | null }));
 vi.mock("./AladinMap", () => ({ default: (props: MapProps) => {
@@ -28,6 +29,7 @@ vi.mock("./AladinMap", () => ({ default: (props: MapProps) => {
       { ra_deg: 154, dec_deg: 44 }, { ra_deg: 150, dec_deg: 44 },
     ] })}>Uncovered region</button>
     <button onClick={() => props.onSkyClick(150.5, -24.25)}>Place sky center</button>
+    <button onClick={() => { const tile = props.tiles[0]; if (tile) props.onTileSelect(tile); }}>Inspect official tile</button>
   </div>;
 } }));
 
@@ -55,6 +57,15 @@ describe("S-PLUS product workflows", () => {
     expect(captured.map!.tiles[0]).toMatchObject({ instrument_profile_id: "t80-south", inference_role: "auto" });
     expect(screen.getByRole("heading", { name: "S-PLUS Footprint Planner" })).toBeTruthy();
     expect(screen.queryByText(/Using bundled official/)).toBeNull();
+  });
+
+  it("keeps official catalogue tiles immutable in Tile details", async () => {
+    const user = userEvent.setup(); render(<App />); await loaded();
+    await user.click(screen.getByRole("button", { name: "Inspect official tile" }));
+
+    expect(screen.getByRole("heading", { name: "Tile details" })).toBeInTheDocument();
+    expect(screen.getByText("Original catalogue tile · immutable")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove tile" })).toBeNull();
   });
 
   it("uses automatically loaded official tiles in ordinary S-PLUS region coverage", async () => {

@@ -37,6 +37,7 @@ vi.mock("./AladinMap", async () => {
       regionFocusRequest: number;
       planningLayers: { proposals: boolean; region: boolean; anchors: boolean; lattice: boolean };
       selectedPolygon: { vertices: CenterInput[] } | null;
+      selectedTileId: string | null;
       referenceMarker: CenterInput | null;
       anchorTileIds: string[];
       candidateCenters: CenterInput[];
@@ -57,6 +58,9 @@ vi.mock("./AladinMap", async () => {
           `${props.datasets.length}:${props.datasets.map(({ filename }) => filename).join(",")}`),
         React.createElement("output", { "data-testid": "map-layer-state" },
           `${props.tiles.filter((tile) => tile.source === "proposed").length}:${Boolean(props.selectedPolygon)}:${props.planningLayers.region}:${props.planningLayers.anchors}:${props.planningLayers.lattice}`),
+        React.createElement("output", { "data-testid": "map-proposed-ids" },
+          JSON.stringify(props.tiles.filter((tile) => tile.source === "proposed").map((tile) => tile.id))),
+        React.createElement("output", { "data-testid": "map-selected-tile-id" }, props.selectedTileId ?? ""),
         React.createElement("output", { "data-testid": "map-focus-state" }, `${props.focusRequest}:${props.regionFocusRequest}`),
         React.createElement("output", { "data-testid": "map-reference" }, JSON.stringify(props.referenceMarker)),
         React.createElement("output", { "data-testid": "project-preview-count" }, props.projectCandidateCenters?.length ?? 0),
@@ -94,6 +98,12 @@ vi.mock("./AladinMap", async () => {
           { onClick: () => props.onTileSelect(props.tiles[1]) },
           "Mock inspect second",
         ),
+        React.createElement("button", {
+          onClick: () => {
+            const tile = props.tiles.find(({ source }) => source === "proposed");
+            if (tile) props.onTileSelect(tile);
+          },
+        }, "Mock inspect first proposed"),
       ),
   };
 });
@@ -173,6 +183,21 @@ function makePlan(count: number): RegionPlanResponse {
       sample_step_deg: 0.12,
     },
   };
+}
+
+function mockCoverageForProposalCount() {
+  apiMocks.measureCoverage.mockImplementation(async (_polygon: unknown, _existing: TileRecord[], proposed: TileRecord[]) => {
+    const newTiles = proposed.filter((tile) => tile.enabled !== false).length;
+    const selectedCoverage = 0.2 + newTiles * 0.1;
+    return {
+      ...makePlan(newTiles).metrics,
+      already_covered_fraction: 0.2,
+      selected_region_coverage: selectedCoverage,
+      incremental_coverage: newTiles * 0.1,
+      remaining_uncovered_fraction: 1 - selectedCoverage,
+      remaining_uncovered_area_deg2: 59.91 * (1 - selectedCoverage),
+    };
+  });
 }
 
 describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
@@ -437,6 +462,135 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await user.click(screen.getByRole("button", { name: "Clear selection" }));
     expect(screen.queryByText(/4 vertices · finalized/)).toBeNull();
     expect(screen.getByText("1", { selector: ".summary-number" })).toBeTruthy();
+  });
+
+  it("removes a tile from proposal preview, recalculates coverage, and excludes it from acceptance and export", async () => {
+    const user = userEvent.setup();
+    mockCoverageForProposalCount();
+    renderFresh();
+    await uploadCatalogueFixture(user);
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await screen.findByRole("heading", { name: "Proposal preview" });
+    expect(JSON.parse(screen.getByTestId("map-proposed-ids").textContent ?? "[]")).toEqual(["preview-1", "preview-2"]);
+
+    await user.click(screen.getByRole("button", { name: "Mock inspect first proposed" }));
+    expect(screen.getByTestId("map-selected-tile-id")).toHaveTextContent("preview-1");
+    await user.click(screen.getByRole("button", { name: "Remove tile" }));
+
+    expect(screen.getByText("No tile selected")).toBeInTheDocument();
+    expect(screen.getByTestId("map-selected-tile-id")).toBeEmptyDOMElement();
+    expect(JSON.parse(screen.getByTestId("map-proposed-ids").textContent ?? "[]")).toEqual(["preview-2"]);
+    expect(document.querySelectorAll(".proposal-section .proposal-row")).toHaveLength(1);
+    expect(screen.queryByText("121.0000°")).toBeNull();
+    expect(screen.getByText("122.0000°")).toBeInTheDocument();
+    expect(screen.getByText(/1 S-PLUS tile centers ready for review/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("New tiles").parentElement).toHaveTextContent("1"));
+    expect(screen.getByText("S-PLUS coverage").parentElement).toHaveTextContent("30.0%");
+    const previewCoverageTiles = apiMocks.measureCoverage.mock.lastCall?.[2] as TileRecord[];
+    expect(previewCoverageTiles.map((tile) => tile.id)).toEqual(["preview-2"]);
+
+    await user.click(screen.getByRole("button", { name: "Accept proposal" }));
+    expect(screen.getByRole("button", { name: /PROPOSED_0002/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Download new_tiles.csv" }));
+    const exported = apiMocks.downloadCatalogue.mock.lastCall?.[0] as TileRecord[];
+    expect(exported).toHaveLength(1);
+    expect(exported[0]).toMatchObject({ id: "proposal-1-preview-2", name: "PROPOSED_0002", enabled: true });
+    expect(exported.some((tile) => tile.id.includes("preview-1"))).toBe(false);
+  });
+
+  it("removes an enabled accepted tile, refreshes coverage, and Restore all does not bring it back", async () => {
+    const user = userEvent.setup();
+    mockCoverageForProposalCount();
+    renderFresh();
+    await uploadCatalogueFixture(user);
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: "Accept proposal" }));
+    await waitFor(() => expect(screen.getByText("S-PLUS coverage").parentElement).toHaveTextContent("40.0%"));
+    expect(JSON.parse(screen.getByTestId("map-proposed-ids").textContent ?? "[]")).toEqual([
+      "proposal-1-preview-1", "proposal-1-preview-2",
+    ]);
+
+    await user.click(screen.getByRole("button", { name: /PROPOSED_0001/ }));
+    expect(screen.getByRole("button", { name: "Disable tile" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove tile" }));
+
+    expect(screen.getByText("No tile selected")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /PROPOSED_0001/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /PROPOSED_0002/ })).toBeInTheDocument();
+    expect(screen.getByText("1 enabled · 0 disabled")).toBeInTheDocument();
+    expect(document.querySelector(".accepted-section .section-heading > span")).toHaveTextContent("1");
+    expect(JSON.parse(screen.getByTestId("map-proposed-ids").textContent ?? "[]")).toEqual(["proposal-1-preview-2"]);
+    await waitFor(() => expect(screen.getByText("S-PLUS coverage").parentElement).toHaveTextContent("30.0%"));
+    const coverageTiles = apiMocks.measureCoverage.mock.lastCall?.[2] as TileRecord[];
+    expect(coverageTiles.map((tile) => tile.id)).toEqual(["proposal-1-preview-2"]);
+
+    await user.click(screen.getByRole("button", { name: "Disable all" }));
+    expect(screen.getByText("0 enabled · 1 disabled")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Restore all" }));
+    expect(screen.getByText("1 enabled · 0 disabled")).toBeInTheDocument();
+    expect(JSON.parse(screen.getByTestId("map-proposed-ids").textContent ?? "[]")).toEqual(["proposal-1-preview-2"]);
+    await user.click(screen.getByRole("button", { name: "Download new_tiles.csv" }));
+    const exported = apiMocks.downloadCatalogue.mock.lastCall?.[0] as TileRecord[];
+    expect(exported).toHaveLength(1);
+    expect(exported[0].id).toBe("proposal-1-preview-2");
+  });
+
+  it("removes a disabled accepted tile without changing the other proposal", async () => {
+    const user = userEvent.setup();
+    renderFresh();
+    await uploadCatalogueFixture(user);
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: "Accept proposal" }));
+    await user.click(screen.getByRole("button", { name: /PROPOSED_0001/ }));
+    await user.click(screen.getByRole("button", { name: "Disable tile" }));
+    expect(screen.getByRole("button", { name: "Enable tile" })).toBeInTheDocument();
+    expect(screen.getByText("DISABLED")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove tile" }));
+
+    expect(screen.queryByRole("button", { name: /PROPOSED_0001/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /PROPOSED_0002/ })).toBeInTheDocument();
+    expect(screen.getByText("1 enabled · 0 disabled")).toBeInTheDocument();
+    expect(JSON.parse(screen.getByTestId("map-proposed-ids").textContent ?? "[]")).toEqual(["proposal-1-preview-2"]);
+    await user.click(screen.getByRole("button", { name: "Download new_tiles.csv" }));
+    const exported = apiMocks.downloadCatalogue.mock.lastCall?.[0] as TileRecord[];
+    expect(exported).toHaveLength(1);
+    expect(exported[0]).toMatchObject({ id: "proposal-1-preview-2", enabled: true });
+  });
+
+  it("keeps an empty preview usable after removing its last proposed tile", async () => {
+    const user = userEvent.setup();
+    apiMocks.planRegion.mockResolvedValueOnce(makePlan(1));
+    mockCoverageForProposalCount();
+    renderFresh();
+    await uploadCatalogueFixture(user);
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await screen.findByRole("heading", { name: "Proposal preview" });
+    await user.click(screen.getByRole("button", { name: "Mock inspect first proposed" }));
+    await user.click(screen.getByRole("button", { name: "Remove tile" }));
+
+    expect(screen.getByText("No tile selected")).toBeInTheDocument();
+    expect(JSON.parse(screen.getByTestId("map-proposed-ids").textContent ?? "[]")).toEqual([]);
+    expect(document.querySelectorAll(".proposal-section .proposal-row")).toHaveLength(0);
+    expect(screen.getByText("No new centers to review.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Accept proposal" })).toBeDisabled();
+    await waitFor(() => expect(screen.getByText("New tiles").parentElement).toHaveTextContent("0"));
+    await user.click(screen.getByRole("button", { name: "Cancel preview" }));
+    expect(screen.queryByRole("heading", { name: "Proposal preview" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("does not expose Remove tile for imported catalogue entries", async () => {
+    const user = userEvent.setup();
+    renderFresh();
+    await uploadCatalogueFixture(user);
+    await user.click(screen.getByRole("button", { name: "Mock inspect original" }));
+
+    expect(screen.getByText("Original catalogue tile · immutable")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove tile" })).toBeNull();
   });
 
   it("clears finalized selection without clearing catalogue or accepted proposal", async () => {
